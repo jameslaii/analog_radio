@@ -1,0 +1,101 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { getValidAccessToken } from './spotifyAuth';
+import { transferPlayback } from './spotifyApi';
+
+let sdkLoadPromise = null;
+
+function loadSpotifySdk() {
+  if (window.Spotify) return Promise.resolve();
+  if (sdkLoadPromise) return sdkLoadPromise;
+
+  sdkLoadPromise = new Promise((resolve) => {
+    window.onSpotifyWebPlaybackSDKReady = () => resolve();
+    const script = document.createElement('script');
+    script.src = 'https://sdk.scdn.co/spotify-player.js';
+    script.async = true;
+    document.body.appendChild(script);
+  });
+
+  return sdkLoadPromise;
+}
+
+/**
+ * Manages an in-browser Spotify Connect device via the Web Playback SDK.
+ * Call `activate()` from a user-gesture handler (e.g. a button click) —
+ * the SDK requires this before it will play audio.
+ */
+function useSpotifyPlayer() {
+  const [deviceId, setDeviceId] = useState(null);
+  const [playerState, setPlayerState] = useState(null);
+  const [error, setError] = useState(null);
+  const [isActive, setIsActive] = useState(false);
+  const playerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      playerRef.current?.disconnect();
+    };
+  }, []);
+
+  const activate = useCallback(async () => {
+    setError(null);
+    try {
+      await loadSpotifySdk();
+
+      const player = new window.Spotify.Player({
+        name: 'Analog Radio',
+        getOAuthToken: (callback) => {
+          getValidAccessToken().then((token) => callback(token));
+        },
+        volume: 0.8,
+      });
+
+      player.addListener('initialization_error', ({ message }) => setError(message));
+      player.addListener('authentication_error', ({ message }) => setError(message));
+      player.addListener('account_error', () =>
+        setError('Spotify Premium is required to use Analog Radio.')
+      );
+      player.addListener('playback_error', ({ message }) => setError(message));
+
+      player.addListener('ready', ({ device_id }) => {
+        setDeviceId(device_id);
+        setIsActive(true);
+        transferPlayback(device_id).catch(() => {
+          // Non-fatal: playback will still work once something is explicitly played to this device.
+        });
+      });
+
+      player.addListener('not_ready', () => {
+        setIsActive(false);
+      });
+
+      player.addListener('player_state_changed', (state) => {
+        if (!state) return;
+        setPlayerState({
+          trackUri: state.track_window.current_track.uri,
+          trackName: state.track_window.current_track.name,
+          artistName: state.track_window.current_track.artists.map((a) => a.name).join(', '),
+          positionMs: state.position,
+          durationMs: state.duration,
+          isPaused: state.paused,
+          contextUri: state.context?.uri ?? null,
+        });
+      });
+
+      const connected = await player.connect();
+      if (!connected) throw new Error('Failed to connect Spotify Web Playback SDK.');
+
+      playerRef.current = player;
+    } catch (err) {
+      setError(err.message);
+    }
+  }, []);
+
+  const setLocalVolume = useCallback((volume0to1) => {
+    playerRef.current?.setVolume(volume0to1);
+  }, []);
+
+  return { activate, deviceId, playerState, error, isActive, setLocalVolume };
+}
+
+export { useSpotifyPlayer };

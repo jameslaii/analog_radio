@@ -1,0 +1,341 @@
+:root {
+  --wood-dark: #2b1a12;
+  --wood: #4a2f1f;
+  --wood-light: #6b4530;
+  --panel: #3a2418;
+  --amber: #ffb347;
+  --amber-glow: #ffcf7a;
+  --cream: #f4e9d8;
+  --text: #f4e9d8;
+  --text-dim: #c9b89e;
+  --red: #e0473e;
+  --green: #6bcf7f;
+
+  color-scheme: dark;
+  font: 16px/1.5 -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: var(--wood-dark);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(ellipse at top, var(--wood) 0%, var(--wood-dark) 70%);
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+h1,
+h2,
+h4 {
+  color: var(--amber);
+  font-weight: 600;
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  background: var(--wood-light);
+  color: var(--text);
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  padding: 10px 20px;
+  transition: background 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--amber);
+  color: var(--wood-dark);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input[type='text'],
+input[readonly] {
+  font: inherit;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--wood-light);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+/* Landing */
+.landing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 80px 24px;
+  text-align: center;
+  max-width: 480px;
+}
+
+.landing__title {
+  font-size: 48px;
+  text-shadow: 0 0 24px var(--amber-glow);
+}
+
+.landing__subtitle {
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+
+.landing__button {
+  font-size: 18px;
+  padding: 14px 32px;
+}
+
+.landing__hint {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-top: 24px;
+}
+
+.landing__error,
+.room__error,
+.callback__error {
+  color: var(--red);
+}
+
+/* Room */
+.room {
+  width: 100%;
+  max-width: 480px;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.room__title {
+  font-size: 32px;
+}
+
+.room__share {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.room__share input {
+  flex: 1;
+  min-width: 0;
+}
+
+.room__activate {
+  font-size: 18px;
+  padding: 16px 40px;
+}
+
+.room__controls {
+  display: flex;
+  gap: 12px;
+}
+
+/* Radio console */
+.radio-console {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  padding: 24px;
+  background: var(--panel);
+  border-radius: 16px;
+  border: 1px solid var(--wood-light);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.4);
+}
+
+/* Tuning dial */
+.tuning-dial__face {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #55372410, var(--wood-dark));
+  border: 4px solid var(--amber);
+  position: relative;
+  box-shadow: 0 0 16px rgba(255, 179, 71, 0.3);
+}
+
+.tuning-dial--spinning .tuning-dial__needle {
+  transition: transform 0.6s linear;
+}
+
+.tuning-dial__needle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 3px;
+  height: 45%;
+  background: var(--amber);
+  transform-origin: bottom center;
+  transform: translateX(-50%) rotate(-135deg);
+}
+
+.tuning-dial__hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--amber);
+  transform: translate(-50%, -50%);
+}
+
+/* Volume knob */
+.volume-knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.volume-knob__dial {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--wood-light);
+  border: 2px solid var(--amber);
+  position: relative;
+}
+
+.volume-knob__mark {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 2px;
+  height: 40%;
+  background: var(--cream);
+  transform: translateX(-50%);
+}
+
+.volume-knob__slider {
+  width: 120px;
+}
+
+/* Frequency display */
+.frequency-display {
+  width: 100%;
+  background: #1a0f0a;
+  border-radius: 8px;
+  border: 1px solid var(--wood-light);
+  padding: 12px 16px;
+}
+
+.frequency-display__scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.frequency-display__readout {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.frequency-display__text {
+  color: var(--amber);
+  font-family: 'Courier New', monospace;
+  font-size: 15px;
+}
+
+/* On air */
+.on-air {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.on-air__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.on-air--live .on-air__dot {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+}
+
+.on-air--live .on-air__label {
+  color: var(--red);
+}
+
+/* Presence */
+.presence-list {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.presence-list__count {
+  color: var(--amber);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Playlist picker */
+.playlist-picker {
+  width: 100%;
+  text-align: left;
+}
+
+.playlist-picker__search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.playlist-picker__search input {
+  flex: 1;
+}
+
+.playlist-picker__section h4 {
+  color: var(--text-dim);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.playlist-picker__section ul {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.playlist-picker__section button {
+  width: 100%;
+  text-align: left;
+  border-color: var(--wood-light);
+  padding: 8px 12px;
+}
