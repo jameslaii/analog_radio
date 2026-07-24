@@ -67,8 +67,17 @@ function ListenerRoom({ roomId }) {
     return () => socket.io.off('reconnect', onReconnect);
   }, [roomId, deviceId]);
 
+  // One button, one verb, the whole way through: not logged in yet -> Spotify
+  // handles the (one-time, usually instant if already signed in there) hand-off;
+  // logged in but not active -> activate this browser as the listening device.
+  // Either way the friend just clicks "Tune In" and never sees the word "Spotify"
+  // as a separate step of its own.
   async function handleTuneIn() {
     setActivating(true);
+    if (!isLoggedIn()) {
+      await login(`/room/${roomId}`);
+      return;
+    }
     try {
       await activate();
     } finally {
@@ -82,8 +91,8 @@ function ListenerRoom({ roomId }) {
     return (
       <div className="room room--listener">
         <h1 className="room__title">You're invited to tune in</h1>
-        <button className="landing__button" onClick={() => login(`/room/${roomId}`)}>
-          Connect Spotify
+        <button className="room__activate" onClick={handleTuneIn} disabled={activating}>
+          {activating ? 'Tuning in…' : 'Tune In'}
         </button>
         <p className="landing__hint">Requires Spotify Premium.</p>
       </div>

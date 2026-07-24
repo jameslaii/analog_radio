@@ -30,6 +30,7 @@ function useSpotifyPlayer() {
   const [error, setError] = useState(null);
   const [isActive, setIsActive] = useState(false);
   const playerRef = useRef(null);
+  const activatingRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -38,6 +39,11 @@ function useSpotifyPlayer() {
   }, []);
 
   const activate = useCallback(async () => {
+    // Guards against a double-click (or any re-entrant call) creating a second
+    // Spotify.Player before the first has finished connecting — that would leak
+    // a duplicate Spotify Connect device and duplicate event listeners.
+    if (activatingRef.current || playerRef.current) return;
+    activatingRef.current = true;
     setError(null);
     try {
       await loadSpotifySdk();
@@ -88,6 +94,8 @@ function useSpotifyPlayer() {
       playerRef.current = player;
     } catch (err) {
       setError(err.message);
+    } finally {
+      activatingRef.current = false;
     }
   }, []);
 

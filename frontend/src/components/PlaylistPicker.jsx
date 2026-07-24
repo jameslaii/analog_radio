@@ -45,7 +45,7 @@ function PlaylistPicker({ onPlay }) {
         <button type="submit" disabled={loading}>{loading ? 'Searching…' : 'Search'}</button>
       </form>
 
-      {searchError && <p className="playlist-picker__error">{searchError}</p>}
+      {searchError && <p className="room__error">{searchError}</p>}
 
       {results.length > 0 && (
         <div className="playlist-picker__section">
@@ -62,10 +62,10 @@ function PlaylistPicker({ onPlay }) {
 
       <div className="playlist-picker__section">
         <h4>Your playlists</h4>
-        {playlistsLoading && <p className="playlist-picker__hint">Loading your playlists…</p>}
-        {playlistsError && <p className="playlist-picker__error">{playlistsError}</p>}
+        {playlistsLoading && <p className="landing__hint">Loading your playlists…</p>}
+        {playlistsError && <p className="room__error">{playlistsError}</p>}
         {!playlistsLoading && !playlistsError && playlists.length === 0 && (
-          <p className="playlist-picker__hint">No playlists found on your Spotify account.</p>
+          <p className="landing__hint">No playlists found on your Spotify account.</p>
         )}
         <ul>
           {playlists.map((p) => (

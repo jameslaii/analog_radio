@@ -127,33 +127,53 @@ async function handleCallback(search) {
   return next;
 }
 
+// Spotify's PKCE refresh tokens rotate (each refresh can issue a new one and
+// invalidate the old one). Several hooks/components call getValidAccessToken()
+// independently (host broadcaster, listener sync, playlist picker, player SDK),
+// so without this cache, two calls landing near token expiry at the same time
+// would both read the same soon-to-be-invalidated refresh token and fire
+// concurrent /api/token requests — the loser gets a 400 invalid_grant, which
+// wipes the session (clearTokens) even though the session was actually fine.
+// Caching the in-flight promise ensures concurrent callers share one refresh.
+let refreshPromise = null;
+
 async function refreshAccessToken() {
-  const tokens = readTokens();
-  if (!tokens?.refreshToken) throw new Error('No refresh token available.');
+  if (refreshPromise) return refreshPromise;
 
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: tokens.refreshToken,
-    client_id: CLIENT_ID,
-  });
+  refreshPromise = (async () => {
+    const tokens = readTokens();
+    if (!tokens?.refreshToken) throw new Error('No refresh token available.');
 
-  const res = await fetch(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: tokens.refreshToken,
+      client_id: CLIENT_ID,
+    });
 
-  if (!res.ok) {
-    clearTokens();
-    throw new Error('Failed to refresh Spotify token.');
+    const res = await fetch(TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+    if (!res.ok) {
+      clearTokens();
+      throw new Error('Failed to refresh Spotify token.');
+    }
+
+    const data = await res.json();
+    writeTokens({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || tokens.refreshToken,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    });
+  })();
+
+  try {
+    await refreshPromise;
+  } finally {
+    refreshPromise = null;
   }
-
-  const data = await res.json();
-  writeTokens({
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token || tokens.refreshToken,
-    expiresAt: Date.now() + data.expires_in * 1000,
-  });
 }
 
 /** Returns a valid access token, refreshing it first if it's expired (or near-expired). */
