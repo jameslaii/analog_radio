@@ -18,14 +18,20 @@ function Landing() {
     setError(null);
     if (!socket.connected) socket.connect();
 
-    socket.emit('room:create', {}, ({ roomId }) => {
-      setCreating(false);
-      if (!roomId) {
-        setError('Could not create a room. Try again.');
-        return;
-      }
-      navigate(`/room/${roomId}`, { state: { isHost: true } });
-    });
+    socket
+      .timeout(8000)
+      .emit('room:create', {}, (timeoutErr, res) => {
+        setCreating(false);
+        if (timeoutErr) {
+          setError("Couldn't reach the station server. Check your connection and try again.");
+          return;
+        }
+        if (!res?.roomId) {
+          setError('Could not create a room. Try again.');
+          return;
+        }
+        navigate(`/room/${res.roomId}`, { state: { isHost: true } });
+      });
   }
 
   return (

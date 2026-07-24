@@ -18,6 +18,9 @@ function HostRoom({ roomId }) {
   const { activate, deviceId, playerState, error, isActive, setLocalVolume } = useSpotifyPlayer();
   const listenerCount = usePresence();
   const [nowPlayingName, setNowPlayingName] = useState(null);
+  const [activating, setActivating] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn()) navigate('/');
@@ -33,31 +36,57 @@ function HostRoom({ roomId }) {
 
   async function handlePlayPlaylist(contextUri, name) {
     if (!deviceId) return;
+    setActionError(null);
     setNowPlayingName(name);
-    await play(deviceId, { contextUri, positionMs: 0 });
+    try {
+      await play(deviceId, { contextUri, positionMs: 0 });
+    } catch (err) {
+      setActionError(err.message || "Couldn't start that playlist. Try again.");
+    }
   }
 
   async function handlePauseToggle() {
     if (!deviceId) return;
-    if (playerState?.isPaused === false) {
-      await pause(deviceId);
-    } else if (playerState?.trackUri) {
-      await play(deviceId, {
-        contextUri: playerState.contextUri,
-        offsetTrackUri: playerState.contextUri ? playerState.trackUri : undefined,
-        uris: playerState.contextUri ? undefined : [playerState.trackUri],
-        positionMs: playerState.positionMs,
-      });
+    setActionError(null);
+    try {
+      if (playerState?.isPaused === false) {
+        await pause(deviceId);
+      } else if (playerState?.trackUri) {
+        await play(deviceId, {
+          contextUri: playerState.contextUri,
+          offsetTrackUri: playerState.contextUri ? playerState.trackUri : undefined,
+          uris: playerState.contextUri ? undefined : [playerState.trackUri],
+          positionMs: playerState.positionMs,
+        });
+      }
+    } catch (err) {
+      setActionError(err.message || "Couldn't update playback. Try again.");
     }
   }
 
   async function handleSkip() {
     if (!deviceId) return;
-    await skipNext(deviceId);
+    setActionError(null);
+    try {
+      await skipNext(deviceId);
+    } catch (err) {
+      setActionError(err.message || "Couldn't skip the track. Try again.");
+    }
+  }
+
+  async function handleGoLive() {
+    setActivating(true);
+    try {
+      await activate();
+    } finally {
+      setActivating(false);
+    }
   }
 
   function copyShareLink() {
     navigator.clipboard.writeText(shareUrl);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
   }
 
   return (
@@ -66,14 +95,14 @@ function HostRoom({ roomId }) {
 
       <div className="room__share">
         <input readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
-        <button onClick={copyShareLink}>Copy link</button>
+        <button onClick={copyShareLink}>{linkCopied ? 'Copied!' : 'Copy link'}</button>
       </div>
 
-      <PresenceList listenerCount={listenerCount} />
+      <PresenceList listenerCount={listenerCount} isHost />
 
       {!isActive ? (
-        <button className="room__activate" onClick={activate}>
-          Go Live
+        <button className="room__activate" onClick={handleGoLive} disabled={activating}>
+          {activating ? 'Connecting…' : 'Go Live'}
         </button>
       ) : (
         <div className="radio-console">
@@ -103,6 +132,7 @@ function HostRoom({ roomId }) {
       )}
 
       {error && <p className="room__error">{error}</p>}
+      {actionError && <p className="room__error">{actionError}</p>}
     </div>
   );
 }

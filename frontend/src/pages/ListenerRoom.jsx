@@ -10,9 +10,22 @@ import FrequencyDisplay from '../components/FrequencyDisplay';
 import OnAirIndicator from '../components/OnAirIndicator';
 import PresenceList from '../components/PresenceList';
 
+/** Turns a server join error code (or a client-side timeout) into a message a non-technical friend can act on. */
+function describeJoinError(code) {
+  switch (code) {
+    case 'room_not_found':
+      return "This station link is invalid or the broadcast has ended. Ask your friend to send you a fresh link.";
+    case 'timeout':
+      return "Couldn't reach the sync server. Check your connection and refresh the page to try again.";
+    default:
+      return "Something went wrong joining this station. Try refreshing the page.";
+  }
+}
+
 function ListenerRoom({ roomId }) {
   const { activate, deviceId, playerState, error, isActive, setLocalVolume } = useSpotifyPlayer();
   const [joinState, setJoinState] = useState({ joined: false, initialState: null, joinError: null });
+  const [activating, setActivating] = useState(false);
   const listenerCount = usePresence();
 
   useEffect(() => {
@@ -20,7 +33,11 @@ function ListenerRoom({ roomId }) {
 
     if (!socket.connected) socket.connect();
 
-    socket.emit('room:join', { roomId }, (res) => {
+    socket.timeout(8000).emit('room:join', { roomId }, (timeoutErr, res) => {
+      if (timeoutErr) {
+        setJoinState({ joined: false, initialState: null, joinError: 'timeout' });
+        return;
+      }
       if (!res?.ok) {
         setJoinState({ joined: false, initialState: null, joinError: res?.error ?? 'unknown_error' });
         return;
@@ -34,14 +51,30 @@ function ListenerRoom({ roomId }) {
   useEffect(() => {
     function onReconnect() {
       if (!deviceId) return;
-      socket.emit('room:join', { roomId }, (res) => {
-        if (!res?.ok) return;
+      socket.timeout(8000).emit('room:join', { roomId }, (timeoutErr, res) => {
+        if (timeoutErr || !res?.ok) {
+          setJoinState((prev) => ({
+            ...prev,
+            joined: false,
+            joinError: timeoutErr ? 'timeout' : res?.error ?? 'unknown_error',
+          }));
+          return;
+        }
         setJoinState({ joined: true, initialState: res.lastState, joinError: null });
       });
     }
     socket.io.on('reconnect', onReconnect);
     return () => socket.io.off('reconnect', onReconnect);
   }, [roomId, deviceId]);
+
+  async function handleTuneIn() {
+    setActivating(true);
+    try {
+      await activate();
+    } finally {
+      setActivating(false);
+    }
+  }
 
   const { hostState, hostLeft } = useListenerSync(deviceId, playerState, joinState.initialState);
 
@@ -59,12 +92,12 @@ function ListenerRoom({ roomId }) {
 
   return (
     <div className="room room--listener">
-      <h1 className="room__title">Tuned In</h1>
+      <h1 className="room__title">{isActive ? 'Tuned In' : 'Ready to Tune In'}</h1>
       <PresenceList listenerCount={listenerCount} />
 
       {!isActive ? (
-        <button className="room__activate" onClick={activate}>
-          Tune In
+        <button className="room__activate" onClick={handleTuneIn} disabled={activating}>
+          {activating ? 'Tuning in…' : 'Tune In'}
         </button>
       ) : (
         <div className="radio-console">
@@ -81,7 +114,7 @@ function ListenerRoom({ roomId }) {
 
       {hostLeft && <p className="room__error">The host has gone off air.</p>}
       {joinState.joinError && (
-        <p className="room__error">Couldn't join this station: {joinState.joinError}</p>
+        <p className="room__error">{describeJoinError(joinState.joinError)}</p>
       )}
       {error && <p className="room__error">{error}</p>}
     </div>

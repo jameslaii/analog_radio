@@ -1,20 +1,26 @@
 :root {
-  --wood-dark: #2b1a12;
-  --wood: #4a2f1f;
-  --wood-light: #6b4530;
-  --panel: #3a2418;
-  --amber: #ffb347;
-  --amber-glow: #ffcf7a;
+  /* the night city outside — cool, muted, a little dystopian */
+  --void: #0a0a12;
+  --void-deep: #050508;
+  --haze: #14121f;
+  --panel: #191527;
+  --border: rgba(232, 225, 255, 0.1);
+  --neon-cyan: #5eead4;
+  --neon-magenta: #f472b6;
+
+  /* the radio itself — the one warm, cozy object in the room */
+  --amber: #ffb56b;
+  --amber-glow: #ffd39a;
   --cream: #f4e9d8;
-  --text: #f4e9d8;
-  --text-dim: #c9b89e;
-  --red: #e0473e;
-  --green: #6bcf7f;
+
+  --text: #e4e1f0;
+  --text-dim: #8d8aa8;
+  --red: #ff5577;
 
   color-scheme: dark;
   font: 16px/1.5 -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
-  background: var(--wood-dark);
+  background: var(--void);
 }
 
 * {
@@ -24,7 +30,51 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(ellipse at top, var(--wood) 0%, var(--wood-dark) 70%);
+  position: relative;
+  background:
+    radial-gradient(ellipse 700px 500px at 8% -5%, rgba(244, 114, 182, 0.16), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 95% 0%, rgba(94, 234, 212, 0.14), transparent 60%),
+    radial-gradient(ellipse at 50% 100%, var(--haze) 0%, var(--void-deep) 75%);
+  overflow-x: hidden;
+}
+
+/* film grain — the whole screen feels like it's playing off an old tape */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* faint CRT scanlines */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 51;
+  pointer-events: none;
+  opacity: 0.35;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.15) 0px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body::after {
+    animation: flicker 6s infinite steps(2);
+  }
+}
+
+@keyframes flicker {
+  0%, 96%, 100% { opacity: 0.35; }
+  97% { opacity: 0.2; }
 }
 
 #root {
@@ -32,6 +82,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 h1,
@@ -45,35 +97,42 @@ h4 {
 button {
   font: inherit;
   cursor: pointer;
-  background: var(--wood-light);
+  background: rgba(232, 225, 255, 0.04);
   color: var(--text);
   border: 1px solid var(--amber);
   border-radius: 8px;
   padding: 10px 20px;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
 button:hover:not(:disabled) {
   background: var(--amber);
-  color: var(--wood-dark);
+  color: var(--void-deep);
+  box-shadow: 0 0 16px rgba(255, 181, 107, 0.4);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 input[type='text'],
 input[readonly] {
   font: inherit;
-  background: var(--panel);
+  background: var(--void-deep);
   color: var(--text);
-  border: 1px solid var(--wood-light);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 12px;
 }
 
-/* Landing */
+input[type='text']:focus,
+input[readonly]:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+/* Landing — the city skyline before you tune in */
 .landing {
   display: flex;
   flex-direction: column;
@@ -86,7 +145,12 @@ input[readonly] {
 
 .landing__title {
   font-size: 48px;
-  text-shadow: 0 0 24px var(--amber-glow);
+  letter-spacing: -0.5px;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--amber-glow), var(--neon-magenta));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 30px rgba(244, 114, 182, 0.25);
 }
 
 .landing__subtitle {
@@ -147,7 +211,7 @@ input[readonly] {
   gap: 12px;
 }
 
-/* Radio console */
+/* Radio console — a warm lamp-lit machine sitting in a dark, rainy room */
 .radio-console {
   display: flex;
   flex-direction: column;
@@ -157,8 +221,10 @@ input[readonly] {
   padding: 24px;
   background: var(--panel);
   border-radius: 16px;
-  border: 1px solid var(--wood-light);
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  box-shadow:
+    inset 0 0 50px rgba(0, 0, 0, 0.5),
+    0 0 60px rgba(255, 181, 107, 0.08);
 }
 
 /* Tuning dial */
@@ -166,10 +232,10 @@ input[readonly] {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #55372410, var(--wood-dark));
+  background: radial-gradient(circle at 35% 30%, rgba(255, 181, 107, 0.08), var(--void-deep));
   border: 4px solid var(--amber);
   position: relative;
-  box-shadow: 0 0 16px rgba(255, 179, 71, 0.3);
+  box-shadow: 0 0 18px rgba(255, 181, 107, 0.35);
 }
 
 .tuning-dial--spinning .tuning-dial__needle {
@@ -210,7 +276,7 @@ input[readonly] {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--wood-light);
+  background: rgba(232, 225, 255, 0.04);
   border: 2px solid var(--amber);
   position: relative;
 }
@@ -227,14 +293,15 @@ input[readonly] {
 
 .volume-knob__slider {
   width: 120px;
+  accent-color: var(--amber);
 }
 
 /* Frequency display */
 .frequency-display {
   width: 100%;
-  background: #1a0f0a;
+  background: var(--void-deep);
   border-radius: 8px;
-  border: 1px solid var(--wood-light);
+  border: 1px solid var(--border);
   padding: 12px 16px;
 }
 
@@ -252,9 +319,10 @@ input[readonly] {
 }
 
 .frequency-display__text {
-  color: var(--amber);
+  color: var(--amber-glow);
   font-family: 'Courier New', monospace;
   font-size: 15px;
+  text-shadow: 0 0 8px rgba(255, 211, 154, 0.5);
 }
 
 /* On air */
@@ -276,7 +344,7 @@ input[readonly] {
 
 .on-air--live .on-air__dot {
   background: var(--red);
-  box-shadow: 0 0 8px var(--red);
+  box-shadow: 0 0 10px var(--red);
 }
 
 .on-air--live .on-air__label {
@@ -293,7 +361,7 @@ input[readonly] {
 }
 
 .presence-list__count {
-  color: var(--amber);
+  color: var(--neon-cyan);
   font-size: 20px;
   font-weight: 700;
 }
@@ -336,6 +404,6 @@ input[readonly] {
 .playlist-picker__section button {
   width: 100%;
   text-align: left;
-  border-color: var(--wood-light);
+  border-color: var(--border);
   padding: 8px 12px;
 }
