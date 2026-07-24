@@ -70,12 +70,47 @@ entirely) logged into a **different Spotify Premium account** — that's your
 "listener." Click **Tune In**, and its playback should follow whatever the
 host plays.
 
+## Deploying (so the link works for real, off your machine)
+
+This is a two-part deploy: the **frontend** goes to Vercel; the **backend**
+needs a host that supports a long-running Node process (Vercel's serverless
+functions aren't a good fit for a stateful Socket.io relay with in-memory
+room state and persistent connections).
+
+**1. Backend** — deploy `backend/` to something like
+[Railway](https://railway.app), [Render](https://render.com), or
+[Fly.io](https://fly.io) (all have a free tier for a small always-on Node
+service). Set its env vars:
+```
+PORT=<whatever the host assigns, usually automatic>
+CORS_ORIGIN=https://<your-vercel-domain>.vercel.app
+```
+Note the backend's public URL once deployed.
+
+**2. Frontend** — import this repo into [Vercel](https://vercel.com/new),
+set the **root directory** to `frontend/`, and add these Environment
+Variables in the Vercel project settings:
+```
+VITE_SPOTIFY_CLIENT_ID=<your client id>
+VITE_SPOTIFY_REDIRECT_URI=https://<your-vercel-domain>.vercel.app/callback
+VITE_BACKEND_URL=<your backend's public URL from step 1>
+```
+Vercel auto-detects the Vite build (`npm run build`, output `dist/`); a
+`frontend/vercel.json` is already included so client-side routes like
+`/room/:id` and `/callback` don't 404 on refresh/direct load.
+
+**3. Spotify Dashboard** — add
+`https://<your-vercel-domain>.vercel.app/callback` as an additional Redirect
+URI (keep the `127.0.0.1` one too, for local dev).
+
+Once all three are set, the share link works for anyone, anywhere.
+
 ## Known limitations (this is a local prototype)
 
-- **Sharing with friends over the internet doesn't work yet as-is.** Spotify
-  locks OAuth redirect URIs to an exact origin, so the link only works on
-  `127.0.0.1` (i.e., the same machine). To test with a friend remotely or on
-  the same Wi-Fi before a real deployment exists, run a tunnel:
+- **Running locally, the link only works on `127.0.0.1`** (i.e., the same
+  machine) — Spotify locks OAuth redirect URIs to an exact origin. See
+  "Deploying" above for the real fix. As a quicker local-only workaround to
+  test with a friend on the same Wi-Fi or remotely, run a tunnel:
 
   ```
   ngrok http 5173
