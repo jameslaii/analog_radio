@@ -2,9 +2,10 @@
 
 Tune your friends into your Spotify, live. One person (the **host**) connects
 their Spotify, picks a playlist, and broadcasts it like a radio station.
-Friends open a shared link, connect their own Spotify, and their playback
-stays in sync with the host's — track changes, pause, and seeks all follow
-along in real time.
+Friends open a shared link and click a single **Tune In** button (Spotify
+login happens as part of that click if needed), and their playback stays in
+sync with the host's — track changes, pause, and seeks all follow along in
+real time.
 
 No audio is streamed through this app — everyone's music plays through their
 *own* Spotify. The app just tells each listener's Spotify what to play and

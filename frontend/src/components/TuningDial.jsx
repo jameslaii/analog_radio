@@ -8,7 +8,7 @@ function TuningDial({ positionMs = 0, durationMs = 0, isPaused = true }) {
       <div className="tuning-dial__face">
         <div
           className="tuning-dial__needle"
-          style={{ transform: `rotate(${rotation}deg)` }}
+          style={{ transform: `translateX(-50%) rotate(${rotation}deg)` }}
         />
         <div className="tuning-dial__hub" />
       </div>

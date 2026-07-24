@@ -1,6 +1,10 @@
 /** Faux FM-dial readout showing the currently playing track/artist as marquee text. */
 function FrequencyDisplay({ trackName, artistName }) {
-  const text = trackName ? `${trackName} — ${artistName}` : 'No signal';
+  const text = trackName
+    ? artistName
+      ? `${trackName} — ${artistName}`
+      : trackName
+    : 'No signal';
 
   return (
     <div className="frequency-display">
