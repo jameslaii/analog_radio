@@ -38,6 +38,19 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 // opens the station, and quota spent by a stranger is quota the room doesn't get.
 const YT_KEY = process.env.YOUTUBE_API_KEY || '';
 
+// YouTube returns titles HTML-escaped, so an apostrophe arrives as &#39; and
+// would otherwise be displayed literally in the queue.
+function decodeHtml(text) {
+  return String(text)
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
 app.get('/search', async (req, res) => {
   const q = (req.query.q || '').toString().trim();
   if (!q) return res.json({ results: [] });
@@ -66,8 +79,8 @@ app.get('/search', async (req, res) => {
       .filter((i) => i.id?.videoId)
       .map((i) => ({
         videoId: i.id.videoId,
-        title: i.snippet?.title || 'Untitled',
-        channel: i.snippet?.channelTitle || '',
+        title: decodeHtml(i.snippet?.title || 'Untitled'),
+        channel: decodeHtml(i.snippet?.channelTitle || ''),
         thumbnail: i.snippet?.thumbnails?.default?.url || null,
       }));
 
