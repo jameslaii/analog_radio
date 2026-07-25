@@ -15,7 +15,8 @@ import PresenceList from '../components/PresenceList';
 
 function HostRoom({ roomId, hostToken }) {
   const navigate = useNavigate();
-  const { activate, deviceId, playerState, error, isActive, setLocalVolume } = useSpotifyPlayer();
+  const { activate, unlockAudio, deviceId, playerState, error, isActive, setLocalVolume } =
+    useSpotifyPlayer();
   const listenerCount = usePresence();
   const [nowPlayingName, setNowPlayingName] = useState(null);
   const [activating, setActivating] = useState(false);
@@ -78,6 +79,7 @@ function HostRoom({ roomId, hostToken }) {
 
   async function handlePlayPlaylist(contextUri, name) {
     if (!deviceId) return;
+    unlockAudio();
     setActionError(null);
     setNowPlayingName(name);
     try {
@@ -90,6 +92,7 @@ function HostRoom({ roomId, hostToken }) {
 
   async function handlePauseToggle() {
     if (!deviceId) return;
+    unlockAudio();
     setActionError(null);
     try {
       if (playerState?.isPaused === false) {
@@ -110,6 +113,7 @@ function HostRoom({ roomId, hostToken }) {
 
   async function handleSkip() {
     if (!deviceId) return;
+    unlockAudio();
     setActionError(null);
     try {
       await skipNext(deviceId);

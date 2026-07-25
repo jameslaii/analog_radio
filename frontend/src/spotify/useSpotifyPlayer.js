@@ -32,10 +32,31 @@ function useSpotifyPlayer() {
   const playerRef = useRef(null);
   const activatingRef = useRef(false);
 
+  // Fetching the SDK is what makes activate() asynchronous, and on iOS every
+  // await spends the user's tap: Safari grants activation only for the moment
+  // right after a touch, so anything that resumes later is treated as if no one
+  // asked. Loading it up front means the tap handler reaches activateElement()
+  // without waiting on the network, which is the whole reason it works there.
   useEffect(() => {
+    loadSpotifySdk().catch(() => {
+      setError("Couldn't load Spotify's player. Check your connection and reload.");
+    });
     return () => {
       playerRef.current?.disconnect();
     };
+  }, []);
+
+  // Safe to call on every tap that leads to playback: iOS can drop the audio
+  // element's permission between interactions, so re-asserting it costs one
+  // synchronous call and saves a silent station. Must be invoked before any
+  // await in the handler, or the activation is already spent.
+  const unlockAudio = useCallback(() => {
+    try {
+      const result = playerRef.current?.activateElement?.();
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    } catch {
+      // Browsers that don't gate autoplay reject this; playback is fine without it.
+    }
   }, []);
 
   const activate = useCallback(async () => {
@@ -106,34 +127,29 @@ function useSpotifyPlayer() {
         });
       });
 
+      playerRef.current = player;
+
+      // Unlock the audio element before connecting, while the tap that started
+      // all this is still the browser's most recent interaction. Playback is
+      // later started by Web API calls, which carry no user gesture of their
+      // own — without this the station goes ON AIR, Spotify reports the track
+      // as playing, and iOS emits nothing at all.
+      unlockAudio();
+
       const connected = await player.connect();
       if (!connected) throw new Error('Failed to connect Spotify Web Playback SDK.');
-
-      // Browsers refuse to emit audio that wasn't started by a real user gesture.
-      // Playback here is started by Web API calls instead — which Spotify happily
-      // reports as playing while the browser silently holds the audio back, so the
-      // station looks live with the track stuck at 0:00 and nothing audible.
-      // activateElement() is Spotify's remedy, and it only works from a gesture,
-      // which is why it belongs here: activate() is only ever called from a click.
-      try {
-        await player.activateElement();
-      } catch {
-        // Browsers that don't gate autoplay reject this; playback is fine without it.
-      }
-
-      playerRef.current = player;
     } catch (err) {
       setError(err.message);
     } finally {
       activatingRef.current = false;
     }
-  }, []);
+  }, [unlockAudio]);
 
   const setLocalVolume = useCallback((volume0to1) => {
     playerRef.current?.setVolume(volume0to1);
   }, []);
 
-  return { activate, deviceId, playerState, error, isActive, setLocalVolume };
+  return { activate, unlockAudio, deviceId, playerState, error, isActive, setLocalVolume };
 }
 
 export { useSpotifyPlayer };
