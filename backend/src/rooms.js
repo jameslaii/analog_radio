@@ -30,10 +30,47 @@ function createRoom() {
     history: [],
     ratings: new Map(),
     listeners: new Map(),
+    messages: [],
     advanceTimer: null,
     emptySince: Date.now(),
   });
   return roomId;
+}
+
+const MAX_MESSAGE_LENGTH = 300;
+const MESSAGE_HISTORY = 80;
+
+/**
+ * Records a line of chat, returning it so it can be sent on to the room.
+ *
+ * Only a recent window is kept: someone arriving mid-session should see enough
+ * to follow what's being said without the room quietly accumulating an entire
+ * evening in memory.
+ */
+function addMessage(roomId, { name, text }) {
+  const room = rooms.get(roomId);
+  if (!room) return null;
+
+  const body = String(text || '').trim().slice(0, MAX_MESSAGE_LENGTH);
+  if (!body) return null;
+
+  const message = {
+    id: generateItemId(),
+    name: name || 'someone',
+    text: body,
+    at: Date.now(),
+  };
+
+  room.messages.push(message);
+  if (room.messages.length > MESSAGE_HISTORY) {
+    room.messages = room.messages.slice(-MESSAGE_HISTORY);
+  }
+  return message;
+}
+
+function recentMessages(roomId) {
+  const room = rooms.get(roomId);
+  return room ? room.messages.slice(-MESSAGE_HISTORY) : [];
 }
 
 function getRoom(roomId) {
@@ -249,6 +286,8 @@ module.exports = {
   setNowPlayingDuration,
   shouldAutoSkip,
   pickRerun,
+  addMessage,
+  recentMessages,
   rate,
   serialize,
   deleteRoom,

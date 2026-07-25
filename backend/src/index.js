@@ -13,6 +13,8 @@ const {
   advance,
   setNowPlayingDuration,
   shouldAutoSkip,
+  addMessage,
+  recentMessages,
   rate,
   serialize,
   sweepIdleRooms,
@@ -144,6 +146,8 @@ function startIfIdle(roomId) {
 
 io.on('connection', (socket) => {
   let joinedRoom = null;
+  let listenerName = 'someone';
+  let lastMessageAt = 0;
 
   // Every listener is running its own slightly-wrong clock, and phones drift
   // more than most. Handing out the server's time lets each one work out how
@@ -160,7 +164,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('station:join', ({ roomId, name } = {}, ack) => {
-    const room = addListener(roomId, socket.id, (name || '').trim() || 'someone');
+    listenerName = (name || '').trim() || 'someone';
+    const room = addListener(roomId, socket.id, listenerName);
     if (!room) {
       if (typeof ack === 'function') ack({ ok: false, error: 'station_not_found' });
       return;
@@ -168,8 +173,27 @@ io.on('connection', (socket) => {
     joinedRoom = roomId;
     socket.join(roomId);
     log('listener joined', roomId, `(${room.listeners.size} present)`);
-    if (typeof ack === 'function') ack({ ok: true, state: serialize(roomId) });
+    // Chat arrives once here and then message by message. Replaying the whole
+    // log on every rating and track change would be a lot of traffic for a
+    // conversation that only ever grows at one end.
+    if (typeof ack === 'function') {
+      ack({ ok: true, state: serialize(roomId), messages: recentMessages(roomId) });
+    }
     broadcast(roomId);
+  });
+
+  socket.on('chat:send', ({ roomId, text } = {}) => {
+    if (!getRoom(roomId) || roomId !== joinedRoom) return;
+
+    // A light throttle: enough to stop a stuck key flooding the room, loose
+    // enough that nobody typing normally will ever notice it.
+    const now = Date.now();
+    if (now - lastMessageAt < 400) return;
+
+    const message = addMessage(roomId, { name: listenerName, text });
+    if (!message) return;
+    lastMessageAt = now;
+    io.to(roomId).emit('chat:message', message);
   });
 
   socket.on('queue:add', ({ roomId, videoId, title, durationMs, addedBy } = {}, ack) => {

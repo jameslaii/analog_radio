@@ -824,6 +824,66 @@ input[readonly]:focus-visible {
   color: var(--text-dim);
 }
 
+/* Room talk — part of the set, not a chat widget bolted to the side */
+.chat {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 181, 107, 0.18);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(94, 234, 212, 0.04), transparent 60%), var(--panel);
+}
+
+.chat__header h4 {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.chat__log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.chat__line {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.chat__who {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.chat__text {
+  color: var(--text);
+}
+
+.chat__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.chat__compose {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.chat__compose input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Search results */
 .add-track {
   width: 100%;

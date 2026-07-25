@@ -5,6 +5,7 @@ import { useYouTubePlayer } from '../youtube/useYouTubePlayer';
 import { parseVideoId, fetchTitle } from '../youtube/youtubeLinks';
 import AddTrack from '../components/AddTrack';
 import Listeners from '../components/Listeners';
+import Chat from '../components/Chat';
 import Queue from '../components/Queue';
 import RatingBar from '../components/RatingBar';
 import TuningDial from '../components/TuningDial';
@@ -20,6 +21,8 @@ function StationRoom({ roomId, name }) {
 
   const {
     state,
+    messages,
+    sendMessage,
     joinError,
     connected,
     addToQueue,
@@ -243,6 +246,10 @@ function StationRoom({ roomId, name }) {
           </div>
         )}
       </div>
+
+      {/* Outside the console, so a phone keyboard opening over it doesn't take
+          the player with it. */}
+      <Chat messages={messages} onSend={sendMessage} me={name} />
     </div>
   );
 }

@@ -1,12 +1,4 @@
-// A colour per person, derived from their name so it's the same for everyone in
-// the room and survives a reconnect without the server having to remember it.
-const DIAL_COLOURS = ['#ffb56b', '#5eead4', '#f472b6', '#a5b4fc', '#fcd34d', '#86efac'];
-
-function colourFor(name) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return DIAL_COLOURS[hash % DIAL_COLOURS.length];
-}
+import { colourFor } from '../lib/personColour';
 
 /**
  * Who is actually in the room.

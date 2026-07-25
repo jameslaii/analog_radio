@@ -13,6 +13,7 @@ const RESYNC_INTERVAL_MS = 10_000;
  */
 function useStation(roomId, listenerName) {
   const [state, setState] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [joinError, setJoinError] = useState(null);
   const [connected, setConnected] = useState(socket.connected);
   const nameRef = useRef(listenerName);
@@ -36,6 +37,9 @@ function useStation(roomId, listenerName) {
           }
           setJoinError(null);
           setState(res.state);
+          // The backlog arrives once, on joining; everything after it comes in
+          // one message at a time.
+          setMessages(res.messages || []);
         }
       );
     }
@@ -52,10 +56,16 @@ function useStation(roomId, listenerName) {
     function onState(next) {
       setState(next);
     }
+    function onMessage(message) {
+      // Guard against a duplicate slipping in when a reconnect replays the
+      // backlog over messages already on screen.
+      setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+    }
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('station:state', onState);
+    socket.on('chat:message', onMessage);
 
     if (!socket.connected) socket.connect();
     else join();
@@ -72,6 +82,7 @@ function useStation(roomId, listenerName) {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('station:state', onState);
+      socket.off('chat:message', onMessage);
     };
   }, [roomId, listenerName]);
 
@@ -114,8 +125,12 @@ function useStation(roomId, listenerName) {
     [roomId]
   );
 
+  const sendMessage = useCallback((text) => socket.emit('chat:send', { roomId, text }), [roomId]);
+
   return {
     state,
+    messages,
+    sendMessage,
     joinError,
     connected,
     addToQueue,

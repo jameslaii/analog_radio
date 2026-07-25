@@ -228,6 +228,45 @@ check(
   x.close();
 }
 
+// --- room talk ---
+{
+  const [x, y] = [await connect(), await connect()];
+  const room = (await emit(x, 'station:create', {})).roomId;
+  await emit(x, 'station:join', { roomId: room, name: 'James' });
+  await emit(y, 'station:join', { roomId: room, name: 'Rosina' });
+
+  const heard = new Promise((resolve) => y.once('chat:message', resolve));
+  x.emit('chat:send', { roomId: room, text: 'this one goes hard' });
+  const msg = await heard;
+  check('a message reaches the other listener', msg?.text === 'this one goes hard');
+  check('a message says who sent it', msg?.name === 'James');
+
+  // Throttled, so a stuck key can't flood the room.
+  x.emit('chat:send', { roomId: room, text: 'first' });
+  x.emit('chat:send', { roomId: room, text: 'second' });
+  await wait(400);
+
+  // Someone arriving late should be able to follow what's been said.
+  const z = await connect();
+  const late = await emit(z, 'station:join', { roomId: room, name: 'Russell' });
+  check('a late arrival is given the backlog', (late?.messages?.length ?? 0) >= 1);
+  check(
+    'the backlog is in the order it was said',
+    late.messages[0].text === 'this one goes hard'
+  );
+
+  const before = late.messages.length;
+  x.emit('chat:send', { roomId: room, text: '   ' });
+  await wait(400);
+  const after = await emit(z, 'playback:resync', { roomId: room });
+  check('an empty message is ignored', Boolean(after));
+
+  const rejoin = await emit(z, 'station:join', { roomId: room, name: 'Russell' });
+  check('blank messages never made it into the log', rejoin.messages.length === before);
+
+  [x, y, z].forEach((s) => s.close());
+}
+
 // --- skip to empty ---
 const skipped = nextState(b);
 a.emit('playback:skip', { roomId });
