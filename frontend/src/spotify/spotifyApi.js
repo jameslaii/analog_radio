@@ -2,10 +2,24 @@ import { getValidAccessToken } from './spotifyAuth';
 
 const API_BASE = 'https://api.spotify.com/v1';
 
-class PremiumRequiredError extends Error {
-  constructor() {
-    super('Spotify Premium is required for playback control.');
-    this.name = 'PremiumRequiredError';
+// Spotify answers 403 for two unrelated situations, and they need different
+// things from the person reading the message: the account isn't Premium, or the
+// app is still in development mode and this account was never added to its
+// allowlist. The second one is invisible from the user's side -- they sign in
+// successfully and only then does every request start failing -- so collapsing
+// both into one guess sends people to fix the wrong thing.
+class AccessDeniedError extends Error {
+  constructor(body) {
+    const detail = String(body || '');
+    const isPremium = /premium/i.test(detail);
+    super(
+      isPremium
+        ? 'Spotify says this account needs Premium to control playback.'
+        : "Spotify refused this account. It most likely hasn't been added to the app's allowlist yet — the host needs to add it in the Spotify dashboard."
+    );
+    this.name = 'AccessDeniedError';
+    this.isPremium = isPremium;
+    this.detail = detail;
   }
 }
 
@@ -34,7 +48,7 @@ async function request(path, options = {}) {
     },
   });
 
-  if (res.status === 403) throw new PremiumRequiredError();
+  if (res.status === 403) throw new AccessDeniedError(await res.text().catch(() => ''));
   if (res.status === 404) throw new DeviceNotFoundError();
   if (res.status === 204 || res.status === 202) return null;
   if (!res.ok) {
@@ -121,7 +135,7 @@ function setVolume(deviceId, volumePercent) {
 }
 
 export {
-  PremiumRequiredError,
+  AccessDeniedError,
   getMe,
   search,
   getMyPlaylists,

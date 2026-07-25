@@ -105,9 +105,16 @@ function useSpotifyPlayer() {
         // backend needs a moment after `ready` before the device is usable.
         // isActive (and the playback controls it reveals) waits for that to
         // actually succeed, instead of racing the user's first Play click.
+        // Whatever Spotify said here is the only clue anyone gets — an account
+        // that isn't allowlisted, one without Premium, and a device that never
+        // registered all fail at this exact line. Replacing that with one
+        // generic sentence sent people chasing a device problem they didn't
+        // have, so the real reason is passed through untouched.
         transferPlayback(device_id)
           .then(() => setIsActive(true))
-          .catch(() => setError("Couldn't activate the Spotify device. Try Go Live again."));
+          .catch((err) =>
+            setError(err?.message || "Spotify wouldn't start playback on this device.")
+          );
       });
 
       player.addListener('not_ready', () => {
