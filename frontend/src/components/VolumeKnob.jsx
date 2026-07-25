@@ -1,6 +1,12 @@
 import { useState } from 'react';
 
-/** Local-only volume control (each listener's own taste; never synced across the room). */
+/**
+ * Local-only volume (each listener's own; never synced across the room).
+ *
+ * The knob and slider carried no visible label, so it read as an ornament
+ * nobody could identify — a control that doesn't say what it does may as well
+ * not be there. The reading doubles as confirmation that dragging did anything.
+ */
 function VolumeKnob({ onChange }) {
   const [volume, setVolume] = useState(80);
 
@@ -26,6 +32,9 @@ function VolumeKnob({ onChange }) {
         aria-label="Volume"
         className="volume-knob__slider"
       />
+      <span className="volume-knob__label">
+        Volume<span className="volume-knob__value">{volume}</span>
+      </span>
     </div>
   );
 }

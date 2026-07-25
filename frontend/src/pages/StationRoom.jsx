@@ -4,6 +4,7 @@ import { useServerClock } from '../sync/useServerClock';
 import { useYouTubePlayer } from '../youtube/useYouTubePlayer';
 import { parseVideoId, fetchTitle } from '../youtube/youtubeLinks';
 import AddTrack from '../components/AddTrack';
+import Listeners from '../components/Listeners';
 import Queue from '../components/Queue';
 import RatingBar from '../components/RatingBar';
 import TuningDial from '../components/TuningDial';
@@ -30,7 +31,7 @@ function StationRoom({ roomId, name }) {
     reportEnded,
   } = useStation(roomId, name);
 
-  const { serverNow, synced, roundTripMs } = useServerClock();
+  const { serverNow } = useServerClock();
 
   // Read at the moment the video ends rather than captured when the handler was
   // made, so a track finishing can't end whatever replaced it.
@@ -45,7 +46,6 @@ function StationRoom({ roomId, name }) {
     needsTap,
     unplayable,
     syncTo,
-    driftFrom,
     stop,
     startPlayback,
     setVolume,
@@ -54,7 +54,6 @@ function StationRoom({ roomId, name }) {
 
   const nowPlaying = state?.nowPlaying ?? null;
   nowPlayingRef.current = nowPlaying;
-  const [drift, setDrift] = useState(null);
 
   const reportedDurationFor = useRef(null);
   const reportedUnplayableFor = useRef(null);
@@ -68,22 +67,19 @@ function StationRoom({ roomId, name }) {
     if (!ready) return undefined;
     if (!nowPlaying) {
       stop();
-      setDrift(null);
       return undefined;
     }
 
     const { videoId, startedAtMs } = nowPlaying;
 
     function tick() {
-      const targetMs = serverNow() - startedAtMs;
-      syncTo(videoId, targetMs);
-      setDrift(driftFrom(targetMs));
+      syncTo(videoId, serverNow() - startedAtMs);
     }
 
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [ready, nowPlaying, serverNow, syncTo, driftFrom, stop]);
+  }, [ready, nowPlaying, serverNow, syncTo, stop]);
 
   // Tell the station how long this runs so the progress dial means something.
   // Advancing no longer depends on it — the player's own ended event does that.
@@ -163,12 +159,7 @@ function StationRoom({ roomId, name }) {
         <button onClick={copyShareLink}>{linkCopied ? 'Copied!' : 'Copy link'}</button>
       </div>
 
-      <div className="presence-list">
-        <span className="presence-list__count">{state?.listeners?.length ?? 0}</span>
-        <span className="presence-list__label">
-          {(state?.listeners ?? []).join(', ') || 'just you so far'}
-        </span>
-      </div>
+      <Listeners names={state?.listeners ?? []} me={name} />
 
       {!connected && <p className="room__error">Reconnecting to the station…</p>}
 
@@ -205,15 +196,6 @@ function StationRoom({ roomId, name }) {
           }
         />
 
-        {nowPlaying && (
-          <p className="sync-status">
-            {!synced
-              ? 'lining up with the station…'
-              : drift === null
-                ? `in step · ±${roundTripMs}ms to the station`
-                : `${Math.abs(drift) < 100 ? 'in step' : `${drift > 0 ? 'ahead' : 'behind'} by ${Math.abs(drift)}ms`} · ±${roundTripMs}ms to the station`}
-          </p>
-        )}
 
         {unplayable && <p className="room__error">{unplayable.reason} Skipping…</p>}
 

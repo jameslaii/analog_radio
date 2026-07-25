@@ -17,20 +17,26 @@ function loadYouTubeApi() {
   return apiLoadPromise;
 }
 
-// The YouTube player exposes no fine playback-rate control, so the only way to
-// close a gap is to seek — and a seek is audible. That sets up the trade-off:
-// too tight and the track stutters as it chases a number, too loose and people
-// hear an echo between phones. Past roughly 50ms two devices in earshot sound
-// wrong, so this sits close to that and accepts an occasional jump.
-const DRIFT_TOLERANCE_MS = 250;
+// A seek on this player is not a cheap nudge — it stops, rebuffers, and comes
+// back several hundred milliseconds later. Chasing a tighter figure than the
+// correction itself costs means every fix creates the gap that triggers the
+// next one, and the track spends its life stalling instead of playing. So the
+// threshold has to sit well clear of what a seek disturbs: only genuine desync
+// is worth interrupting for, and ordinary jitter is left alone.
+const DRIFT_TOLERANCE_MS = 1500;
 
 // Seeking isn't instant. Aiming at where the station will be by the time the
 // seek lands avoids arriving permanently a beat behind.
-const SEEK_COMPENSATION_MS = 120;
+const SEEK_COMPENSATION_MS = 250;
 
-// A player that has just been told to seek reports nonsense for a moment, and
-// correcting on top of that starts a loop of corrections.
-const MIN_CORRECTION_GAP_MS = 2500;
+// Long enough for a seek to finish and settle before its own after-effects can
+// be mistaken for drift.
+const MIN_CORRECTION_GAP_MS = 8000;
+
+// Buffering looks exactly like stopped from the outside. Waiting before calling
+// it stalled keeps the "tap to start" gate from flashing over the video every
+// time the player pauses to load.
+const STALL_GRACE_MS = 3000;
 
 /**
  * Holds a YouTube player and keeps it lined up with the station's clock.
@@ -46,7 +52,19 @@ function useYouTubePlayer(containerId, onEnded) {
 
   const [ready, setReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [wantsPlayback, setWantsPlayback] = useState(false);
+  const [stalled, setStalled] = useState(false);
   const [unplayable, setUnplayable] = useState(null);
+
+  // Only a stop that outlasts a normal buffer counts as needing the listener.
+  useEffect(() => {
+    if (!wantsPlayback || isPlaying) {
+      setStalled(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setStalled(true), STALL_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [wantsPlayback, isPlaying]);
 
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
@@ -112,6 +130,7 @@ function useYouTubePlayer(containerId, onEnded) {
     if (!p || !p.loadVideoById) return;
 
     wantsPlaybackRef.current = true;
+    setWantsPlayback(true);
 
     if (currentVideoRef.current !== videoId) {
       currentVideoRef.current = videoId;
@@ -158,6 +177,7 @@ function useYouTubePlayer(containerId, onEnded) {
 
   const stop = useCallback(() => {
     wantsPlaybackRef.current = false;
+    setWantsPlayback(false);
     currentVideoRef.current = null;
     try {
       playerRef.current?.stopVideo?.();
@@ -198,10 +218,10 @@ function useYouTubePlayer(containerId, onEnded) {
   return {
     ready,
     isPlaying,
-    // Something is meant to be playing and isn't. Rather than leave the listener
-    // staring at a silent station wondering whose fault it is, the UI shows a
-    // gate over the player and this is what tells it to.
-    needsTap: ready && wantsPlaybackRef.current && !isPlaying,
+    // Something is meant to be playing and has stayed stopped long enough that
+    // buffering doesn't explain it — usually a browser refusing to make sound
+    // without being asked. Only then is the listener worth interrupting.
+    needsTap: ready && stalled,
     unplayable,
     syncTo,
     driftFrom,

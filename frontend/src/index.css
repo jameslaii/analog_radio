@@ -713,12 +713,115 @@ input[readonly]:focus-visible {
   line-height: 1;
 }
 
-.sync-status {
-  margin: -8px 0 0;
-  font-size: 11px;
-  letter-spacing: 0.5px;
+.volume-knob__label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   color: var(--text-dim);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.volume-knob__value {
+  color: var(--amber);
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* Who's here — a panel on the console, not a statistic */
+.listeners {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 181, 107, 0.18);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 181, 107, 0.05), transparent 60%), var(--panel);
+}
+
+.listeners__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.listeners__header h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.listeners__count {
+  color: var(--neon-cyan);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+.listeners__lamp {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 8px var(--neon-cyan);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .listeners__lamp {
+    animation: lamp-breathe 3s ease-in-out infinite;
+  }
+}
+
+.listeners__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.listeners__person {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(232, 225, 255, 0.04);
+  font-size: 13px;
+}
+
+.listeners__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.listeners__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12ch;
+}
+
+.listeners__you {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.listeners__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
 }
 
 /* Search results */
