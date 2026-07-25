@@ -196,7 +196,13 @@ function StationRoom({ roomId, name }) {
 
         <FrequencyDisplay
           trackName={nowPlaying?.title ?? 'Dead air — queue something'}
-          artistName={nowPlaying ? `added by ${nowPlaying.addedBy}` : null}
+          artistName={
+            nowPlaying
+              ? nowPlaying.isRerun
+                ? `back from the archives · ${nowPlaying.addedBy} put this on`
+                : `added by ${nowPlaying.addedBy}`
+              : null
+          }
         />
 
         {nowPlaying && (
@@ -237,7 +243,15 @@ function StationRoom({ roomId, name }) {
             <ul className="history">
               {state.history.map((item) => (
                 <li key={item.id} className="history__item">
-                  <span className="history__title">{item.title}</span>
+                  <span className="history__body">
+                    <span className="history__title">{item.title}</span>
+                    {/* Credit is the whole discovery mechanic: you remember who put
+                        you onto something long after you've forgotten the song. */}
+                    <span className="history__by">
+                      {item.isRerun ? 'rerun · ' : ''}
+                      {item.addedBy}
+                    </span>
+                  </span>
                   <span className="history__score">
                     ▲ {item.ratings.up} ▼ {item.ratings.down}
                   </span>

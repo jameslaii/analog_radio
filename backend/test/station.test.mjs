@@ -132,6 +132,102 @@ check(
   `${t1.nowPlaying.positionMs}ms -> ${t2.nowPlaying.positionMs}ms`
 );
 
+// --- the room can vote a track off ---
+{
+  const [x, y, z] = [await connect(), await connect(), await connect()];
+  const room = (await emit(x, 'station:create', {})).roomId;
+  for (const [sock, who] of [[x, 'X'], [y, 'Y'], [z, 'Z']]) {
+    await emit(sock, 'station:join', { roomId: room, name: who });
+  }
+  await emit(x, 'queue:add', { roomId: room, videoId: 'ddddddddddd', title: 'Divisive', addedBy: 'X' });
+  await emit(x, 'queue:add', { roomId: room, videoId: 'eeeeeeeeeee', title: 'Next Up', addedBy: 'Y' });
+  await wait(300);
+
+  let s = await emit(x, 'playback:resync', { roomId: room });
+  const divisiveId = s.nowPlaying.id;
+
+  y.emit('track:rate', { roomId: room, itemId: divisiveId, value: -1 });
+  await wait(300);
+  s = await emit(x, 'playback:resync', { roomId: room });
+  check('one dislike is not enough to end a track', s.nowPlaying.title === 'Divisive');
+
+  z.emit('track:rate', { roomId: room, itemId: divisiveId, value: -1 });
+  await wait(400);
+  s = await emit(x, 'playback:resync', { roomId: room });
+  check('enough dislikes ends the track', s.nowPlaying.title === 'Next Up');
+
+  // Someone enjoying it should hold the line against a single detractor.
+  const nextId = s.nowPlaying.id;
+  x.emit('track:rate', { roomId: room, itemId: nextId, value: 1 });
+  y.emit('track:rate', { roomId: room, itemId: nextId, value: 1 });
+  z.emit('track:rate', { roomId: room, itemId: nextId, value: -1 });
+  await wait(400);
+  s = await emit(x, 'playback:resync', { roomId: room });
+  check('a track the room likes survives a dissenter', s.nowPlaying?.title === 'Next Up');
+
+  [x, y, z].forEach((sk) => sk.close());
+}
+
+// --- dead air is filled by something the room liked ---
+{
+  const [x, y] = [await connect(), await connect()];
+  const room = (await emit(x, 'station:create', {})).roomId;
+  await emit(x, 'station:join', { roomId: room, name: 'X' });
+  await emit(y, 'station:join', { roomId: room, name: 'Y' });
+
+  // A rerun deliberately won't repeat anything from the last few tracks, so the
+  // session needs some depth before there is anything eligible to bring back.
+  for (const [id, title] of [
+    ['fffffffffff', 'A Keeper'],
+    ['hhhhhhhhhhh', 'Second'],
+    ['iiiiiiiiiii', 'Third'],
+    ['jjjjjjjjjjj', 'Fourth'],
+  ]) {
+    await emit(x, 'queue:add', { roomId: room, videoId: id, title, addedBy: 'X' });
+  }
+  await wait(300);
+
+  let s = await emit(x, 'playback:resync', { roomId: room });
+  const keeperId = s.nowPlaying.id;
+  check('the session starts with the first queued track', s.nowPlaying.title === 'A Keeper');
+
+  // Only the first one earns its way back.
+  x.emit('track:rate', { roomId: room, itemId: keeperId, value: 1 });
+  y.emit('track:rate', { roomId: room, itemId: keeperId, value: 1 });
+  await wait(250);
+
+  for (let i = 0; i < 4; i++) {
+    s = await emit(x, 'playback:resync', { roomId: room });
+    if (!s.nowPlaying) break;
+    x.emit('track:ended', { roomId: room, itemId: s.nowPlaying.id });
+    await wait(350);
+  }
+
+  s = await emit(x, 'playback:resync', { roomId: room });
+  check('an empty queue replays a liked track instead of dead air', s.nowPlaying !== null);
+  check('the rerun is the one the room liked', s.nowPlaying?.title === 'A Keeper');
+  check('the rerun is marked as one', s.nowPlaying?.isRerun === true);
+  check('the rerun keeps who originally added it', s.nowPlaying?.addedBy === 'X');
+
+  x.close();
+  y.close();
+}
+
+// --- an unloved track is not resurrected ---
+{
+  const x = await connect();
+  const room = (await emit(x, 'station:create', {})).roomId;
+  await emit(x, 'station:join', { roomId: room, name: 'X' });
+  await emit(x, 'queue:add', { roomId: room, videoId: 'ggggggggggg', title: 'Unloved', addedBy: 'X' });
+  await wait(300);
+  const s0 = await emit(x, 'playback:resync', { roomId: room });
+  x.emit('track:ended', { roomId: room, itemId: s0.nowPlaying.id });
+  await wait(400);
+  const s1 = await emit(x, 'playback:resync', { roomId: room });
+  check('a track nobody rated is left alone', s1.nowPlaying === null);
+  x.close();
+}
+
 // --- skip to empty ---
 const skipped = nextState(b);
 a.emit('playback:skip', { roomId });

@@ -12,6 +12,7 @@ const {
   removeQueued,
   advance,
   setNowPlayingDuration,
+  shouldAutoSkip,
   rate,
   serialize,
   sweepIdleRooms,
@@ -228,8 +229,19 @@ io.on('connection', (socket) => {
   });
 
   socket.on('track:rate', ({ roomId, itemId, value } = {}) => {
-    if (!getRoom(roomId) || (value !== 1 && value !== -1)) return;
+    const room = getRoom(roomId);
+    if (!room || (value !== 1 && value !== -1)) return;
     rate(roomId, itemId, socket.id, value);
+
+    // A vote that only moves a counter is decoration. If the room has turned on
+    // this track, it ends here rather than making someone step in and be the one
+    // who killed it.
+    if (room.nowPlaying?.id === itemId && shouldAutoSkip(room)) {
+      log('voted off', roomId, room.nowPlaying.title);
+      advance(roomId);
+      scheduleAdvance(roomId);
+    }
+
     broadcast(roomId);
   });
 

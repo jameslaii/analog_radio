@@ -87,14 +87,16 @@ function removeQueued(roomId, itemId) {
  * is what keeps a late arrival landing in the middle of a song rather than
  * restarting it for everyone.
  */
-function advance(roomId) {
+function advance(roomId, { allowRerun = true } = {}) {
   const room = rooms.get(roomId);
   if (!room) return null;
 
   if (room.nowPlaying) room.history.unshift(room.nowPlaying);
   room.history = room.history.slice(0, 50);
 
-  const next = room.queue.shift() || null;
+  // Anything anyone actually chose comes first; a rerun is only ever what
+  // happens instead of silence.
+  const next = room.queue.shift() || (allowRerun ? pickRerun(roomId) : null);
   room.nowPlaying = next ? { ...next, startedAtMs: Date.now() } : null;
   return room.nowPlaying;
 }
@@ -125,6 +127,55 @@ function rate(roomId, itemId, listenerId, value) {
   else forItem.set(listenerId, value);
 
   return tallyRatings(room, itemId);
+}
+
+/**
+ * Whether the room has turned on the current track hard enough to cut it short.
+ *
+ * A rating that only increments a number is decoration; Turntable's worked
+ * because enough dislikes actually ended the song. Two is the floor so one
+ * person can't quietly veto for everyone — they have the skip button for that
+ * — and it has to beat the people enjoying it.
+ */
+function shouldAutoSkip(room) {
+  if (!room.nowPlaying) return false;
+  const { up, down } = tallyRatings(room, room.nowPlaying.id);
+  const present = Math.max(room.listeners.size, 1);
+  return down >= 2 && down > up && down >= Math.ceil(present / 2);
+}
+
+/**
+ * Something worth hearing again when the queue runs dry.
+ *
+ * Dead air is where a room quietly ends: the last track finishes, nobody is
+ * paying enough attention to queue anything, and everyone drifts off. Turntable
+ * died of exactly this — demanding constant attention from people who mostly
+ * want music on in the background. A station that keeps playing something the
+ * room already liked survives the lull instead of ending on it.
+ */
+function pickRerun(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return null;
+
+  const recentIds = new Set(room.history.slice(0, 3).map((i) => i.videoId));
+  const liked = room.history
+    .filter((i) => !recentIds.has(i.videoId))
+    .map((i) => ({ item: i, net: tallyRatings(room, i.id).up - tallyRatings(room, i.id).down }))
+    .filter((c) => c.net > 0)
+    .sort((a, b) => b.net - a.net);
+
+  if (liked.length === 0) return null;
+
+  // Among equally liked tracks, vary it rather than looping the same favourite.
+  const best = liked[0].net;
+  const topTier = liked.filter((c) => c.net === best);
+  const chosen = topTier[Math.floor(Math.random() * topTier.length)].item;
+
+  return {
+    ...chosen,
+    id: generateItemId(),
+    isRerun: true,
+  };
 }
 
 function tallyRatings(room, itemId) {
@@ -196,6 +247,8 @@ module.exports = {
   removeQueued,
   advance,
   setNowPlayingDuration,
+  shouldAutoSkip,
+  pickRerun,
   rate,
   serialize,
   deleteRoom,
