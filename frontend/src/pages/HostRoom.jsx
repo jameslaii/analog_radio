@@ -22,6 +22,7 @@ function HostRoom({ roomId, hostToken }) {
   const [actionError, setActionError] = useState(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [stationLost, setStationLost] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn()) navigate('/');
@@ -132,6 +133,27 @@ function HostRoom({ roomId, hostToken }) {
     setTimeout(() => setLinkCopied(false), 2000);
   }
 
+  // A station can become unrecoverable for reasons the host can't do anything
+  // about (the relay restarted and rooms only live in its memory). Rebuilding
+  // one here keeps the already-connected Spotify device and the music, so the
+  // host only loses the share link — not their whole setup.
+  function startFreshStation() {
+    setRestarting(true);
+    if (!socket.connected) socket.connect();
+
+    socket.timeout(8000).emit('room:create', {}, (timeoutErr, res) => {
+      setRestarting(false);
+      if (timeoutErr || !res?.roomId || !res?.hostToken) {
+        setActionError("Couldn't reach the station server. Check your connection and try again.");
+        return;
+      }
+      sessionStorage.removeItem(`analog_radio_host_${roomId}`);
+      sessionStorage.setItem(`analog_radio_host_${res.roomId}`, res.hostToken);
+      setStationLost(false);
+      navigate(`/room/${res.roomId}`, { state: { isHost: true }, replace: true });
+    });
+  }
+
   return (
     <div className="room room--host">
       <h1 className="room__title">Your Station</h1>
@@ -144,10 +166,15 @@ function HostRoom({ roomId, hostToken }) {
       <PresenceList listenerCount={listenerCount} isHost />
 
       {stationLost && (
-        <p className="room__error">
-          Lost connection to your station and couldn't reconnect — the share link above is dead.
-          Go back and hit Start Broadcasting again for a fresh one.
-        </p>
+        <div className="room__recover">
+          <p className="room__error">
+            The station server restarted, so this share link no longer works. Your music and
+            Spotify connection are fine — you just need a new link to send out.
+          </p>
+          <button onClick={startFreshStation} disabled={restarting}>
+            {restarting ? 'Starting…' : 'Get a new link'}
+          </button>
+        </div>
       )}
 
       {!isActive ? (

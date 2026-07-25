@@ -19,6 +19,13 @@ const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://127.0.0.1:5173';
 const HOST_DISCONNECT_GRACE_MS = 20_000;
 
+// Room state is in-memory only, so when a station "just dies" the cause is
+// almost always invisible after the fact. These lines are the difference
+// between diagnosing that and guessing at it.
+function log(event, roomId) {
+  console.log(`[${new Date().toISOString()}] ${event}${roomId ? ` room=${roomId}` : ''}`);
+}
+
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN }));
 
@@ -35,16 +42,19 @@ io.on('connection', (socket) => {
   socket.on('room:create', (_payload, ack) => {
     const { roomId, hostToken } = createRoom(socket.id);
     socket.join(roomId);
+    log('room created', roomId);
     if (typeof ack === 'function') ack({ roomId, hostToken });
   });
 
   socket.on('room:reclaim', ({ roomId, hostToken } = {}, ack) => {
     const room = reclaimRoom(roomId, hostToken, socket.id);
     if (!room) {
+      log('reclaim refused (room gone or bad token)', roomId);
       if (typeof ack === 'function') ack({ ok: false, error: 'room_not_found' });
       return;
     }
     socket.join(roomId);
+    log('host reclaimed', roomId);
     if (typeof ack === 'function') ack({ ok: true, lastState: room.lastState });
   });
 
@@ -72,7 +82,9 @@ io.on('connection', (socket) => {
     if (hostedRoomId) {
       // Give the host a window to reconnect and reclaim (network blip, backgrounded
       // tab, page refresh) before telling listeners the broadcast really ended.
+      log('host dropped, grace period started', hostedRoomId);
       scheduleRoomDeletion(hostedRoomId, HOST_DISCONNECT_GRACE_MS, () => {
+        log('grace expired, room closed', hostedRoomId);
         io.to(hostedRoomId).emit('host:left', {});
       });
     }

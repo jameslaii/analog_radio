@@ -50,8 +50,23 @@ function useSpotifyPlayer() {
 
       const player = new window.Spotify.Player({
         name: 'Analog Radio',
+        // Access tokens last an hour, so the SDK calls this again mid-session to
+        // renew. If that renewal fails the SDK gets no token and simply stops
+        // playing — no error event, no visible cause. Catching it here is the
+        // only place that silence can be turned into something the user can act
+        // on, so a long session doesn't just die quietly.
         getOAuthToken: (callback) => {
-          getValidAccessToken().then((token) => callback(token));
+          getValidAccessToken()
+            .then((token) => {
+              if (!token) {
+                setError('Your Spotify session expired. Reload the page to reconnect.');
+                return;
+              }
+              callback(token);
+            })
+            .catch(() => {
+              setError('Your Spotify session expired. Reload the page to reconnect.');
+            });
         },
         volume: 0.8,
       });
