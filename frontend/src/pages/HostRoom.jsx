@@ -5,7 +5,7 @@ import { useSpotifyPlayer } from '../spotify/useSpotifyPlayer';
 import { useHostBroadcaster } from '../sync/useHostBroadcaster';
 import { usePresence } from '../sync/usePresence';
 import { socket } from '../sync/socket';
-import { play, pause, skipNext } from '../spotify/spotifyApi';
+import { play, pause, skipNext, getPlaybackState } from '../spotify/spotifyApi';
 import PlaylistPicker from '../components/PlaylistPicker';
 import TuningDial from '../components/TuningDial';
 import VolumeKnob from '../components/VolumeKnob';
@@ -13,7 +13,7 @@ import FrequencyDisplay from '../components/FrequencyDisplay';
 import OnAirIndicator from '../components/OnAirIndicator';
 import PresenceList from '../components/PresenceList';
 
-function HostRoom({ roomId }) {
+function HostRoom({ roomId, hostToken }) {
   const navigate = useNavigate();
   const { activate, deviceId, playerState, error, isActive, setLocalVolume } = useSpotifyPlayer();
   const listenerCount = usePresence();
@@ -21,6 +21,7 @@ function HostRoom({ roomId }) {
   const [activating, setActivating] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [stationLost, setStationLost] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn()) navigate('/');
@@ -30,9 +31,49 @@ function HostRoom({ roomId }) {
     if (!socket.connected) socket.connect();
   }, []);
 
+  // Re-associates this (possibly new, post-reconnect) socket with the room on
+  // every connect — including the very first one, since a hard page refresh
+  // also gets a fresh socket. Without this, a network blip or backgrounded tab
+  // silently orphans the room: this host keeps broadcasting into a room the
+  // server already deleted, and listeners get "station not found".
+  useEffect(() => {
+    if (!hostToken) return undefined;
+
+    function reclaim() {
+      socket.timeout(8000).emit('room:reclaim', { roomId, hostToken }, (timeoutErr, res) => {
+        setStationLost(Boolean(timeoutErr) || !res?.ok);
+      });
+    }
+
+    if (socket.connected) reclaim();
+    socket.on('connect', reclaim);
+    return () => socket.off('connect', reclaim);
+  }, [roomId, hostToken]);
+
   useHostBroadcaster(roomId, playerState);
 
   const shareUrl = `${window.location.origin}/room/${roomId}`;
+
+  // A play command can succeed and then get silently reverted a moment later
+  // if Spotify hands "active device" status to something else — most commonly
+  // another Spotify session (phone app, desktop app, another browser tab)
+  // still open on the same account. The Web Playback SDK doesn't surface that
+  // as an error, it just reports paused, so this cross-checks the account's
+  // actual playback state shortly after and explains the likely cause instead
+  // of leaving the on-air flicker unexplained.
+  async function verifyPlaybackHeld() {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const state = await getPlaybackState();
+      if (state && state.is_playing === false) {
+        setActionError(
+          "Playback stopped right after starting. This usually means Spotify is also open and active on another device (phone, desktop app, speaker) — close it there and hit Play again."
+        );
+      }
+    } catch {
+      // Best-effort diagnostic only.
+    }
+  }
 
   async function handlePlayPlaylist(contextUri, name) {
     if (!deviceId) return;
@@ -40,6 +81,7 @@ function HostRoom({ roomId }) {
     setNowPlayingName(name);
     try {
       await play(deviceId, { contextUri, positionMs: 0 });
+      verifyPlaybackHeld();
     } catch (err) {
       setActionError(err.message || "Couldn't start that playlist. Try again.");
     }
@@ -58,6 +100,7 @@ function HostRoom({ roomId }) {
           uris: playerState.contextUri ? undefined : [playerState.trackUri],
           positionMs: playerState.positionMs,
         });
+        verifyPlaybackHeld();
       }
     } catch (err) {
       setActionError(err.message || "Couldn't update playback. Try again.");
@@ -99,6 +142,13 @@ function HostRoom({ roomId }) {
       </div>
 
       <PresenceList listenerCount={listenerCount} isHost />
+
+      {stationLost && (
+        <p className="room__error">
+          Lost connection to your station and couldn't reconnect — the share link above is dead.
+          Go back and hit Start Broadcasting again for a fresh one.
+        </p>
+      )}
 
       {!isActive ? (
         <button className="room__activate" onClick={handleGoLive} disabled={activating}>

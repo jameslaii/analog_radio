@@ -65,10 +65,13 @@ function useSpotifyPlayer() {
 
       player.addListener('ready', ({ device_id }) => {
         setDeviceId(device_id);
-        setIsActive(true);
-        transferPlayback(device_id).catch(() => {
-          // Non-fatal: playback will still work once something is explicitly played to this device.
-        });
+        // transferPlayback retries internally on "device not found" — Spotify's
+        // backend needs a moment after `ready` before the device is usable.
+        // isActive (and the playback controls it reveals) waits for that to
+        // actually succeed, instead of racing the user's first Play click.
+        transferPlayback(device_id)
+          .then(() => setIsActive(true))
+          .catch(() => setError("Couldn't activate the Spotify device. Try Go Live again."));
       });
 
       player.addListener('not_ready', () => {

@@ -26,10 +26,13 @@ function Landing() {
           setError("Couldn't reach the station server. Check your connection and try again.");
           return;
         }
-        if (!res?.roomId) {
+        if (!res?.roomId || !res?.hostToken) {
           setError('Could not create a room. Try again.');
           return;
         }
+        // sessionStorage (not router state) so host status survives a page
+        // refresh or a reconnect, not just the initial client-side navigation.
+        sessionStorage.setItem(`analog_radio_host_${res.roomId}`, res.hostToken);
         navigate(`/room/${res.roomId}`, { state: { isHost: true } });
       });
   }

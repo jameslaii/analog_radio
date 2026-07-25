@@ -11,11 +11,13 @@ const {
   findRoomsByListenerSocket,
   setLastState,
   getRoom,
-  deleteRoom,
+  scheduleRoomDeletion,
+  reclaimRoom,
 } = require('./rooms');
 
 const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://127.0.0.1:5173';
+const HOST_DISCONNECT_GRACE_MS = 20_000;
 
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN }));
@@ -31,9 +33,19 @@ const io = new Server(server, {
 
 io.on('connection', (socket) => {
   socket.on('room:create', (_payload, ack) => {
-    const roomId = createRoom(socket.id);
+    const { roomId, hostToken } = createRoom(socket.id);
     socket.join(roomId);
-    if (typeof ack === 'function') ack({ roomId });
+    if (typeof ack === 'function') ack({ roomId, hostToken });
+  });
+
+  socket.on('room:reclaim', ({ roomId, hostToken } = {}, ack) => {
+    const room = reclaimRoom(roomId, hostToken, socket.id);
+    if (!room) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'room_not_found' });
+      return;
+    }
+    socket.join(roomId);
+    if (typeof ack === 'function') ack({ ok: true, lastState: room.lastState });
   });
 
   socket.on('room:join', ({ roomId } = {}, ack) => {
@@ -58,8 +70,11 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const hostedRoomId = findRoomByHostSocket(socket.id);
     if (hostedRoomId) {
-      io.to(hostedRoomId).emit('host:left', {});
-      deleteRoom(hostedRoomId);
+      // Give the host a window to reconnect and reclaim (network blip, backgrounded
+      // tab, page refresh) before telling listeners the broadcast really ended.
+      scheduleRoomDeletion(hostedRoomId, HOST_DISCONNECT_GRACE_MS, () => {
+        io.to(hostedRoomId).emit('host:left', {});
+      });
     }
 
     const listenerRoomIds = findRoomsByListenerSocket(socket.id);

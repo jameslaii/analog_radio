@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, useParams, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 import Landing from './pages/Landing';
 import Callback from './pages/Callback';
 import HostRoom from './pages/HostRoom';
@@ -6,10 +6,16 @@ import ListenerRoom from './pages/ListenerRoom';
 
 function RoomPage() {
   const { roomId } = useParams();
-  const location = useLocation();
-  const isHost = Boolean(location.state?.isHost);
+  // Read from sessionStorage rather than router navigation state, so host
+  // status survives a page refresh instead of silently demoting the host to
+  // a listener of their own room.
+  const hostToken = sessionStorage.getItem(`analog_radio_host_${roomId}`);
 
-  return isHost ? <HostRoom roomId={roomId} /> : <ListenerRoom roomId={roomId} />;
+  return hostToken ? (
+    <HostRoom roomId={roomId} hostToken={hostToken} />
+  ) : (
+    <ListenerRoom roomId={roomId} />
+  );
 }
 
 function App() {

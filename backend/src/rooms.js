@@ -1,8 +1,12 @@
 const { customAlphabet } = require('nanoid');
 
 const generateRoomId = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
+const generateHostToken = customAlphabet(
+  'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
+  24
+);
 
-// roomId -> { hostSocketId, listeners: Set<socketId>, lastState: object|null }
+// roomId -> { hostSocketId, hostToken, listeners: Set<socketId>, lastState: object|null, deletionTimer }
 const rooms = new Map();
 
 function createRoom(hostSocketId) {
@@ -10,8 +14,42 @@ function createRoom(hostSocketId) {
   while (rooms.has(roomId)) {
     roomId = generateRoomId();
   }
-  rooms.set(roomId, { hostSocketId, listeners: new Set(), lastState: null });
-  return roomId;
+  const hostToken = generateHostToken();
+  rooms.set(roomId, {
+    hostSocketId,
+    hostToken,
+    listeners: new Set(),
+    lastState: null,
+    deletionTimer: null,
+  });
+  return { roomId, hostToken };
+}
+
+// Called on host disconnect instead of deleting immediately — a brief network
+// blip, a backgrounded mobile tab, or the host's page reload would otherwise
+// kill the room before they get a chance to reconnect. `onExpire` fires only if
+// the host never reclaims the room within the grace window.
+function scheduleRoomDeletion(roomId, graceMs, onExpire) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  clearTimeout(room.deletionTimer);
+  room.deletionTimer = setTimeout(() => {
+    if (rooms.has(roomId)) {
+      deleteRoom(roomId);
+      onExpire();
+    }
+  }, graceMs);
+}
+
+// Re-associates a room with a new socket after the host reconnects, provided
+// they can prove they're the original host and the grace window hasn't expired.
+function reclaimRoom(roomId, hostToken, newHostSocketId) {
+  const room = rooms.get(roomId);
+  if (!room || room.hostToken !== hostToken) return null;
+  clearTimeout(room.deletionTimer);
+  room.deletionTimer = null;
+  room.hostSocketId = newHostSocketId;
+  return room;
 }
 
 function joinRoom(roomId, socketId) {
@@ -66,4 +104,6 @@ module.exports = {
   setLastState,
   getRoom,
   deleteRoom,
+  scheduleRoomDeletion,
+  reclaimRoom,
 };

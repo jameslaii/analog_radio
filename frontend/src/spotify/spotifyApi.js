@@ -9,6 +9,18 @@ class PremiumRequiredError extends Error {
   }
 }
 
+// Right after the Web Playback SDK's `ready` event fires, Spotify's backend
+// hasn't always finished registering the device yet — player-scoped endpoints
+// (play/pause/seek/etc.) can 404 with "Device not found" for a few hundred ms.
+// This is a known SDK quirk, not a real failure, so these calls get retried
+// briefly instead of surfacing an error to the user.
+class DeviceNotFoundError extends Error {
+  constructor() {
+    super('Spotify device not found.');
+    this.name = 'DeviceNotFoundError';
+  }
+}
+
 async function request(path, options = {}) {
   const token = await getValidAccessToken();
   if (!token) throw new Error('Not logged in to Spotify.');
@@ -23,6 +35,7 @@ async function request(path, options = {}) {
   });
 
   if (res.status === 403) throw new PremiumRequiredError();
+  if (res.status === 404) throw new DeviceNotFoundError();
   if (res.status === 204 || res.status === 202) return null;
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -32,6 +45,18 @@ async function request(path, options = {}) {
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('application/json')) return res.json();
   return null;
+}
+
+async function requestWithDeviceRetry(path, options, attempts = 4, delayMs = 400) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await request(path, options);
+    } catch (err) {
+      if (!(err instanceof DeviceNotFoundError) || attempt === attempts - 1) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
+    }
+  }
+  return undefined;
 }
 
 function getMe() {
@@ -60,37 +85,39 @@ function play(deviceId, { contextUri, uris, positionMs = 0, offsetTrackUri } = {
   if (uris) body.uris = uris;
   if (positionMs) body.position_ms = positionMs;
 
-  return request(`/me/player/play?device_id=${deviceId}`, {
+  return requestWithDeviceRetry(`/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
     body: JSON.stringify(body),
   });
 }
 
 function pause(deviceId) {
-  return request(`/me/player/pause?device_id=${deviceId}`, { method: 'PUT' });
+  return requestWithDeviceRetry(`/me/player/pause?device_id=${deviceId}`, { method: 'PUT' });
 }
 
 function seek(deviceId, positionMs) {
-  return request(`/me/player/seek?position_ms=${Math.round(positionMs)}&device_id=${deviceId}`, {
-    method: 'PUT',
-  });
+  return requestWithDeviceRetry(
+    `/me/player/seek?position_ms=${Math.round(positionMs)}&device_id=${deviceId}`,
+    { method: 'PUT' }
+  );
 }
 
 function skipNext(deviceId) {
-  return request(`/me/player/next?device_id=${deviceId}`, { method: 'POST' });
+  return requestWithDeviceRetry(`/me/player/next?device_id=${deviceId}`, { method: 'POST' });
 }
 
 function transferPlayback(deviceId) {
-  return request('/me/player', {
+  return requestWithDeviceRetry('/me/player', {
     method: 'PUT',
     body: JSON.stringify({ device_ids: [deviceId], play: false }),
   });
 }
 
 function setVolume(deviceId, volumePercent) {
-  return request(`/me/player/volume?volume_percent=${Math.round(volumePercent)}&device_id=${deviceId}`, {
-    method: 'PUT',
-  });
+  return requestWithDeviceRetry(
+    `/me/player/volume?volume_percent=${Math.round(volumePercent)}&device_id=${deviceId}`,
+    { method: 'PUT' }
+  );
 }
 
 export {
