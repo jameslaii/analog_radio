@@ -109,6 +109,18 @@ function useSpotifyPlayer() {
       const connected = await player.connect();
       if (!connected) throw new Error('Failed to connect Spotify Web Playback SDK.');
 
+      // Browsers refuse to emit audio that wasn't started by a real user gesture.
+      // Playback here is started by Web API calls instead — which Spotify happily
+      // reports as playing while the browser silently holds the audio back, so the
+      // station looks live with the track stuck at 0:00 and nothing audible.
+      // activateElement() is Spotify's remedy, and it only works from a gesture,
+      // which is why it belongs here: activate() is only ever called from a click.
+      try {
+        await player.activateElement();
+      } catch {
+        // Browsers that don't gate autoplay reject this; playback is fine without it.
+      }
+
       playerRef.current = player;
     } catch (err) {
       setError(err.message);
