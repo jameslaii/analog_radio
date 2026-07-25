@@ -5,111 +5,185 @@ const http = require('http');
 const { Server } = require('socket.io');
 const {
   createRoom,
-  joinRoom,
-  leaveRoom,
-  findRoomByHostSocket,
-  findRoomsByListenerSocket,
-  setLastState,
   getRoom,
-  scheduleRoomDeletion,
-  reclaimRoom,
+  addListener,
+  removeListener,
+  enqueue,
+  removeQueued,
+  advance,
+  setNowPlayingDuration,
+  rate,
+  serialize,
+  sweepIdleRooms,
 } = require('./rooms');
 
 const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://127.0.0.1:5173';
-// A backgrounded browser tab gets its timers throttled, so the socket heartbeat
-// stops and the connection drops within about a minute -- switching tabs to pick
-// a playlist is enough to trigger it. The grace window has to outlast that kind
-// of absence, not just a momentary network blip, or hosts lose their station for
-// looking away. Rooms are tiny, so holding one for a few idle minutes costs
-// nothing next to making someone re-share a dead link.
-const HOST_DISCONNECT_GRACE_MS = 5 * 60_000;
+const IDLE_ROOM_TTL_MS = 2 * 60 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
-// Room state is in-memory only, so when a station "just dies" the cause is
-// almost always invisible after the fact. These lines are the difference
-// between diagnosing that and guessing at it.
-function log(event, roomId) {
-  console.log(`[${new Date().toISOString()}] ${event}${roomId ? ` room=${roomId}` : ''}`);
+function log(event, roomId, extra = '') {
+  console.log(
+    `[${new Date().toISOString()}] ${event}${roomId ? ` room=${roomId}` : ''}${extra ? ` ${extra}` : ''}`
+  );
 }
 
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN }));
 
-app.get('/health', (req, res) => {
-  res.json({ ok: true });
-});
+app.get('/health', (req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: CORS_ORIGIN },
-  // Default is a 20s timeout, which a throttled background tab misses easily.
-  // Waiting a full minute before declaring a host gone stops ordinary tab
-  // switching from being read as a disconnect in the first place.
+  // A phone that locks or a tab that goes to the background stops sending
+  // heartbeats long before the person has actually left.
   pingInterval: 25_000,
   pingTimeout: 60_000,
 });
 
+function broadcast(roomId) {
+  const state = serialize(roomId);
+  if (state) io.to(roomId).emit('station:state', state);
+}
+
+/**
+ * Drives the station forward on its own. Because the server holds the clock
+ * rather than a host's browser, the queue keeps playing whether anyone's tab is
+ * open or not — which is what stops one person leaving from ending the night.
+ */
+function scheduleAdvance(roomId) {
+  const room = getRoom(roomId);
+  if (!room) return;
+
+  clearTimeout(room.advanceTimer);
+  if (!room.nowPlaying) return;
+
+  // Duration arrives from whoever loads the video first. Until then there is no
+  // honest end time to schedule against, and guessing one would cut the track
+  // off mid-song.
+  if (!(room.nowPlaying.durationMs > 0)) return;
+
+  const elapsed = Date.now() - room.nowPlaying.startedAtMs;
+  const remaining = Math.max(room.nowPlaying.durationMs - elapsed, 0);
+
+  room.advanceTimer = setTimeout(() => {
+    const next = advance(roomId);
+    log(next ? 'advanced' : 'queue empty', roomId, next ? `-> ${next.title}` : '');
+    broadcast(roomId);
+    scheduleAdvance(roomId);
+  }, remaining + 500);
+}
+
+/** Starts playback if the station is idle and something just landed in the queue. */
+function startIfIdle(roomId) {
+  const room = getRoom(roomId);
+  if (!room || room.nowPlaying || room.queue.length === 0) return;
+  advance(roomId);
+  scheduleAdvance(roomId);
+}
+
 io.on('connection', (socket) => {
-  socket.on('room:create', (_payload, ack) => {
-    const { roomId, hostToken } = createRoom(socket.id);
-    socket.join(roomId);
-    log('room created', roomId);
-    if (typeof ack === 'function') ack({ roomId, hostToken });
+  let joinedRoom = null;
+
+  socket.on('station:create', (_payload, ack) => {
+    const roomId = createRoom();
+    log('station created', roomId);
+    if (typeof ack === 'function') ack({ roomId });
   });
 
-  socket.on('room:reclaim', ({ roomId, hostToken } = {}, ack) => {
-    const room = reclaimRoom(roomId, hostToken, socket.id);
+  socket.on('station:join', ({ roomId, name } = {}, ack) => {
+    const room = addListener(roomId, socket.id, (name || '').trim() || 'someone');
     if (!room) {
-      log('reclaim refused (room gone or bad token)', roomId);
-      if (typeof ack === 'function') ack({ ok: false, error: 'room_not_found' });
+      if (typeof ack === 'function') ack({ ok: false, error: 'station_not_found' });
       return;
     }
+    joinedRoom = roomId;
     socket.join(roomId);
-    log('host reclaimed', roomId);
-    if (typeof ack === 'function') ack({ ok: true, lastState: room.lastState });
+    log('listener joined', roomId, `(${room.listeners.size} present)`);
+    if (typeof ack === 'function') ack({ ok: true, state: serialize(roomId) });
+    broadcast(roomId);
   });
 
-  socket.on('room:join', ({ roomId } = {}, ack) => {
-    const room = joinRoom(roomId, socket.id);
-    if (!room) {
-      if (typeof ack === 'function') ack({ ok: false, error: 'room_not_found' });
+  socket.on('queue:add', ({ roomId, videoId, title, durationMs, addedBy } = {}, ack) => {
+    if (!getRoom(roomId) || !videoId) {
+      if (typeof ack === 'function') ack({ ok: false });
       return;
     }
-    socket.join(roomId);
-    io.to(roomId).emit('room:presence', { listenerCount: room.listeners.size });
-    if (typeof ack === 'function') ack({ ok: true, lastState: room.lastState });
+    const item = enqueue(roomId, { videoId, title, durationMs, addedBy });
+    log('queued', roomId, `${title} (by ${item.addedBy})`);
+    startIfIdle(roomId);
+    broadcast(roomId);
+    if (typeof ack === 'function') ack({ ok: true, item });
   });
 
-  socket.on('host:state', ({ roomId, state } = {}) => {
-    if (!roomId || !state) return;
+  socket.on('queue:remove', ({ roomId, itemId } = {}) => {
+    if (removeQueued(roomId, itemId)) broadcast(roomId);
+  });
+
+  // Anyone can skip. In a room of friends the person who put a track on is
+  // usually the first to admit it isn't landing, and making that a negotiation
+  // costs more than the occasional lost song.
+  socket.on('playback:skip', ({ roomId } = {}) => {
     const room = getRoom(roomId);
-    if (!room || room.hostSocketId !== socket.id) return;
-    setLastState(roomId, state);
-    socket.to(roomId).emit('host:state', state);
+    if (!room || !room.nowPlaying) return;
+    advance(roomId);
+    log('skipped', roomId);
+    scheduleAdvance(roomId);
+    broadcast(roomId);
+  });
+
+  // Reported by whichever player reaches the end first. Guarded by the track id
+  // so a straggler finishing the previous song can't skip the current one.
+  socket.on('track:ended', ({ roomId, itemId } = {}) => {
+    const room = getRoom(roomId);
+    if (!room || !room.nowPlaying || room.nowPlaying.id !== itemId) return;
+    advance(roomId);
+    log('track ended', roomId);
+    scheduleAdvance(roomId);
+    broadcast(roomId);
+  });
+
+  socket.on('track:duration', ({ roomId, itemId, durationMs } = {}) => {
+    if (!setNowPlayingDuration(roomId, itemId, durationMs)) return;
+    scheduleAdvance(roomId);
+    broadcast(roomId);
+  });
+
+  // A track nobody can play would otherwise hold the station hostage until its
+  // (unknown) duration elapsed, so the first player to be refused moves it on.
+  socket.on('track:unplayable', ({ roomId, itemId } = {}) => {
+    const room = getRoom(roomId);
+    if (!room || !room.nowPlaying || room.nowPlaying.id !== itemId) return;
+    log('unplayable, skipping', roomId, room.nowPlaying.title);
+    advance(roomId);
+    scheduleAdvance(roomId);
+    broadcast(roomId);
+  });
+
+  socket.on('track:rate', ({ roomId, itemId, value } = {}) => {
+    if (!getRoom(roomId) || (value !== 1 && value !== -1)) return;
+    rate(roomId, itemId, socket.id, value);
+    broadcast(roomId);
+  });
+
+  // Clients drift, buffer, and get throttled in background tabs, so they ask for
+  // the truth rather than assuming their own position is right.
+  socket.on('playback:resync', ({ roomId } = {}, ack) => {
+    if (typeof ack === 'function') ack(serialize(roomId));
   });
 
   socket.on('disconnect', () => {
-    const hostedRoomId = findRoomByHostSocket(socket.id);
-    if (hostedRoomId) {
-      // Give the host a window to reconnect and reclaim (network blip, backgrounded
-      // tab, page refresh) before telling listeners the broadcast really ended.
-      log('host dropped, grace period started', hostedRoomId);
-      scheduleRoomDeletion(hostedRoomId, HOST_DISCONNECT_GRACE_MS, () => {
-        log('grace expired, room closed', hostedRoomId);
-        io.to(hostedRoomId).emit('host:left', {});
-      });
-    }
-
-    const listenerRoomIds = findRoomsByListenerSocket(socket.id);
-    for (const roomId of listenerRoomIds) {
-      leaveRoom(roomId, socket.id);
-      const room = getRoom(roomId);
-      if (room) {
-        io.to(roomId).emit('room:presence', { listenerCount: room.listeners.size });
-      }
-    }
+    if (!joinedRoom) return;
+    removeListener(joinedRoom, socket.id);
+    log('listener left', joinedRoom);
+    broadcast(joinedRoom);
   });
 });
+
+setInterval(() => {
+  for (const roomId of sweepIdleRooms(IDLE_ROOM_TTL_MS)) log('idle station reclaimed', roomId);
+}, SWEEP_INTERVAL_MS);
 
 server.listen(PORT, () => {
   console.log(`analog radio relay listening on :${PORT}`);

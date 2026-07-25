@@ -515,3 +515,155 @@ input[readonly]:focus-visible {
   border-color: var(--border);
   padding: 8px 12px;
 }
+
+/* Station: queue, ratings, and the player itself */
+.room--station {
+  max-width: 560px;
+}
+
+/* The video stays visible rather than being hidden behind an audio-only
+   facade -- YouTube's terms require the player be shown, and seeing what is
+   playing is half of discovering something new. */
+.player-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--amber-dim, #6b4a1f);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #000;
+}
+
+.player-frame--idle {
+  opacity: 0.25;
+}
+
+.player-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.station__section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.station__section h4 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.queue__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+.queue__position {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.5;
+  min-width: 1.5em;
+}
+
+.queue__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.queue__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue__by {
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.queue__remove {
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.queue__remove:hover {
+  opacity: 1;
+}
+
+.queue__empty {
+  opacity: 0.55;
+  font-size: 14px;
+  margin: 0;
+}
+
+.rating-bar {
+  display: flex;
+  gap: 12px;
+}
+
+.rating-bar__button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rating-bar__count {
+  min-width: 1.2em;
+}
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.history__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.history__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history__score {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
