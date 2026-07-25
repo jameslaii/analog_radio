@@ -33,6 +33,51 @@ app.use(cors({ origin: CORS_ORIGIN }));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
+// Search runs through here rather than from the browser so the API key stays on
+// the server. A key shipped in frontend JavaScript is readable by anyone who
+// opens the station, and quota spent by a stranger is quota the room doesn't get.
+const YT_KEY = process.env.YOUTUBE_API_KEY || '';
+
+app.get('/search', async (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  if (!q) return res.json({ results: [] });
+  if (!YT_KEY) return res.status(501).json({ error: 'search_not_configured' });
+
+  try {
+    const params = new URLSearchParams({
+      key: YT_KEY,
+      q,
+      part: 'snippet',
+      type: 'video',
+      maxResults: '8',
+      // Videos the owner has blocked from embedding can't play here at all, so
+      // there's no reason to offer them.
+      videoEmbeddable: 'true',
+    });
+    const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
+    if (!searchRes.ok) {
+      const detail = await searchRes.text().catch(() => '');
+      log('search failed', null, `${searchRes.status} ${detail.slice(0, 200)}`);
+      return res.status(502).json({ error: 'search_failed', status: searchRes.status });
+    }
+
+    const data = await searchRes.json();
+    const results = (data.items || [])
+      .filter((i) => i.id?.videoId)
+      .map((i) => ({
+        videoId: i.id.videoId,
+        title: i.snippet?.title || 'Untitled',
+        channel: i.snippet?.channelTitle || '',
+        thumbnail: i.snippet?.thumbnails?.default?.url || null,
+      }));
+
+    res.json({ results });
+  } catch (err) {
+    log('search error', null, err.message);
+    res.status(502).json({ error: 'search_failed' });
+  }
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: CORS_ORIGIN },

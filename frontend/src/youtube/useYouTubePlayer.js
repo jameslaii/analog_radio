@@ -17,24 +17,26 @@ function loadYouTubeApi() {
   return apiLoadPromise;
 }
 
-// How far out of step with the station we tolerate before correcting. Seeking is
-// audible, so a threshold that's too tight makes the player stutter its way
-// through a song chasing a number nobody can hear.
+// Seeking is audible, so correcting small drift does more damage than the drift
+// itself. This is the gap worth an audible jump to close.
 const DRIFT_TOLERANCE_MS = 1500;
 
 /**
- * Holds a YouTube player and keeps it pinned to the station's clock.
+ * Holds a YouTube player and keeps it lined up with the station's clock.
  *
- * Unlike the Spotify version this replaced, the audio is playing right here in
- * the page — so staying in sync is a local seek rather than a request to a
- * third party, and there's nothing to log into.
+ * The container element must already be on the page when this runs — the player
+ * replaces a div by id, and given a missing one it attaches to nothing and stays
+ * silently blank.
  */
 function useYouTubePlayer(containerId, onEnded) {
   const playerRef = useRef(null);
-  const [ready, setReady] = useState(false);
-  const [blocked, setBlocked] = useState(false);
-  const [unplayable, setUnplayable] = useState(null);
   const currentVideoRef = useRef(null);
+  const wantsPlaybackRef = useRef(false);
+
+  const [ready, setReady] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [unplayable, setUnplayable] = useState(null);
+
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
 
@@ -43,29 +45,37 @@ function useYouTubePlayer(containerId, onEnded) {
 
     loadYouTubeApi().then(() => {
       if (cancelled) return;
+      if (!document.getElementById(containerId)) return;
+
       playerRef.current = new window.YT.Player(containerId, {
         height: '100%',
         width: '100%',
-        playerVars: { playsinline: 1, controls: 0, disablekb: 1, rel: 0, modestbranding: 1 },
+        playerVars: {
+          // Without this iOS takes the video fullscreen the moment it starts,
+          // throwing the listener out of the room to watch it.
+          playsinline: 1,
+          controls: 0,
+          disablekb: 1,
+          rel: 0,
+          modestbranding: 1,
+        },
         events: {
           onReady: () => setReady(true),
-          // The player knowing it has finished beats the server counting down to
-          // a duration it was told second-hand. Some videos never report one, and
-          // a station that waits for a number it will never receive stops dead
-          // on a track that has already ended.
           onStateChange: (e) => {
-            if (e.data === window.YT?.PlayerState?.ENDED) {
+            const YT = window.YT;
+            setIsPlaying(e.data === YT?.PlayerState?.PLAYING);
+            if (e.data === YT?.PlayerState?.ENDED) {
               onEndedRef.current?.(currentVideoRef.current);
             }
           },
           onError: (e) => {
-            // 101/150 are "the owner won't allow this off YouTube". Nothing to
-            // retry — the station has to move on or it stalls on a dead track.
+            // 101 and 150 both mean the owner won't allow playback off YouTube.
+            // Nothing to retry; the station has to move past it.
             const embeddingRefused = e.data === 101 || e.data === 150;
             setUnplayable({
               videoId: currentVideoRef.current,
               reason: embeddingRefused
-                ? "This one can't be played outside YouTube."
+                ? "The owner won't allow this one to play outside YouTube."
                 : "This video couldn't be loaded.",
             });
           },
@@ -80,66 +90,56 @@ function useYouTubePlayer(containerId, onEnded) {
     };
   }, [containerId]);
 
-  /** Aligns the player with the station: right video, right place, playing. */
   const syncTo = useCallback((videoId, positionMs) => {
-    const player = playerRef.current;
-    if (!player || !player.loadVideoById) return;
+    const p = playerRef.current;
+    if (!p || !p.loadVideoById) return;
 
     const positionSec = Math.max(positionMs, 0) / 1000;
+    wantsPlaybackRef.current = true;
 
     if (currentVideoRef.current !== videoId) {
       currentVideoRef.current = videoId;
       setUnplayable(null);
-      player.loadVideoById({ videoId, startSeconds: positionSec });
+      p.loadVideoById({ videoId, startSeconds: positionSec });
       return;
     }
 
-    let localSec = 0;
     try {
-      localSec = player.getCurrentTime() || 0;
-    } catch {
-      return;
-    }
-
-    if (Math.abs(localSec * 1000 - positionMs) > DRIFT_TOLERANCE_MS) {
-      player.seekTo(positionSec, true);
-    }
-
-    // Browsers refuse audio that no one asked for, and the refusal is silent:
-    // the player simply sits paused while the station plays on without it. The
-    // listener is told rather than left wondering why it's quiet.
-    try {
-      const state = player.getPlayerState();
-      if (state === window.YT?.PlayerState?.PAUSED || state === window.YT?.PlayerState?.CUED) {
-        player.playVideo();
-        setBlocked(true);
-      } else if (state === window.YT?.PlayerState?.PLAYING) {
-        setBlocked(false);
+      const localSec = p.getCurrentTime() || 0;
+      if (Math.abs(localSec * 1000 - positionMs) > DRIFT_TOLERANCE_MS) {
+        p.seekTo(positionSec, true);
       }
+      // Worth asking every time: desktop will simply start, and on iOS this is
+      // refused until a tap, which is what the gate in the UI is for.
+      if (p.getPlayerState() !== window.YT?.PlayerState?.PLAYING) p.playVideo();
     } catch {
-      /* player not ready yet */
+      /* player still warming up */
     }
   }, []);
 
   const stop = useCallback(() => {
+    wantsPlaybackRef.current = false;
     currentVideoRef.current = null;
-    playerRef.current?.stopVideo?.();
-  }, []);
-
-  /** Called from a tap, which is the only thing that convinces a browser to make noise. */
-  const unmuteAndPlay = useCallback(() => {
-    const player = playerRef.current;
-    if (!player) return;
     try {
-      player.unMute();
-      player.playVideo();
-      setBlocked(false);
+      playerRef.current?.stopVideo?.();
     } catch {
-      /* nothing sensible to do if the player isn't up yet */
+      /* ignore */
     }
   }, []);
 
-  /** Length of the loaded video in ms, or 0 until the player knows it. */
+  /** Runs from a tap — the only thing that persuades iOS to make noise. */
+  const startPlayback = useCallback(() => {
+    const p = playerRef.current;
+    if (!p) return;
+    try {
+      p.unMute();
+      p.setVolume(80);
+      p.playVideo();
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const getDurationMs = useCallback(() => {
     try {
       return Math.round((playerRef.current?.getDuration?.() || 0) * 1000);
@@ -156,7 +156,20 @@ function useYouTubePlayer(containerId, onEnded) {
     }
   }, []);
 
-  return { ready, blocked, unplayable, syncTo, stop, unmuteAndPlay, setVolume, getDurationMs };
+  return {
+    ready,
+    isPlaying,
+    // Something is meant to be playing and isn't. Rather than leave the listener
+    // staring at a silent station wondering whose fault it is, the UI shows a
+    // gate over the player and this is what tells it to.
+    needsTap: ready && wantsPlaybackRef.current && !isPlaying,
+    unplayable,
+    syncTo,
+    stop,
+    startPlayback,
+    getDurationMs,
+    setVolume,
+  };
 }
 
 export { useYouTubePlayer };
