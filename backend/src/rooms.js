@@ -148,8 +148,18 @@ function serialize(roomId) {
 
   return {
     roomId,
+    // startedAtMs is the station's actual reference point, in server time.
+    // positionMs is only a snapshot, already stale by the time it lands, so
+    // clients work out where they should be from startedAtMs against a clock
+    // they've aligned to the server. Both are sent: the dial can use the
+    // snapshot, but nothing that has to stay in step should.
+    serverNow: Date.now(),
     nowPlaying: room.nowPlaying
-      ? { ...withRatings(room.nowPlaying), positionMs: Date.now() - room.nowPlaying.startedAtMs }
+      ? {
+          ...withRatings(room.nowPlaying),
+          startedAtMs: room.nowPlaying.startedAtMs,
+          positionMs: Date.now() - room.nowPlaying.startedAtMs,
+        }
       : null,
     queue: room.queue.map(withRatings),
     history: room.history.slice(0, 10).map(withRatings),

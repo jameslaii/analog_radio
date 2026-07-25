@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStation } from '../sync/useStation';
+import { useServerClock } from '../sync/useServerClock';
 import { useYouTubePlayer } from '../youtube/useYouTubePlayer';
 import { parseVideoId, fetchTitle } from '../youtube/youtubeLinks';
 import AddTrack from '../components/AddTrack';
@@ -29,6 +30,8 @@ function StationRoom({ roomId, name }) {
     reportEnded,
   } = useStation(roomId, name);
 
+  const { serverNow, synced, roundTripMs } = useServerClock();
+
   // Read at the moment the video ends rather than captured when the handler was
   // made, so a track finishing can't end whatever replaced it.
   const nowPlayingRef = useRef(null);
@@ -37,23 +40,50 @@ function StationRoom({ roomId, name }) {
     if (current) reportEnded(current.id);
   });
 
-  const { ready, needsTap, unplayable, syncTo, stop, startPlayback, setVolume, getDurationMs } =
-    player;
+  const {
+    ready,
+    needsTap,
+    unplayable,
+    syncTo,
+    driftFrom,
+    stop,
+    startPlayback,
+    setVolume,
+    getDurationMs,
+  } = player;
 
   const nowPlaying = state?.nowPlaying ?? null;
   nowPlayingRef.current = nowPlaying;
+  const [drift, setDrift] = useState(null);
 
   const reportedDurationFor = useRef(null);
   const reportedUnplayableFor = useRef(null);
 
+  // Correcting only when the server happens to speak leaves a player free to
+  // wander in between, and every listener wanders differently — which is what
+  // an echo across the room actually is. This recomputes the target from the
+  // station's start time against the shared clock, so drift is caught within a
+  // second rather than whenever the next broadcast lands.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) return undefined;
     if (!nowPlaying) {
       stop();
-      return;
+      setDrift(null);
+      return undefined;
     }
-    syncTo(nowPlaying.videoId, nowPlaying.positionMs);
-  }, [ready, nowPlaying, syncTo, stop]);
+
+    const { videoId, startedAtMs } = nowPlaying;
+
+    function tick() {
+      const targetMs = serverNow() - startedAtMs;
+      syncTo(videoId, targetMs);
+      setDrift(driftFrom(targetMs));
+    }
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [ready, nowPlaying, serverNow, syncTo, driftFrom, stop]);
 
   // Tell the station how long this runs so the progress dial means something.
   // Advancing no longer depends on it — the player's own ended event does that.
@@ -168,6 +198,16 @@ function StationRoom({ roomId, name }) {
           trackName={nowPlaying?.title ?? 'Dead air — queue something'}
           artistName={nowPlaying ? `added by ${nowPlaying.addedBy}` : null}
         />
+
+        {nowPlaying && (
+          <p className="sync-status">
+            {!synced
+              ? 'lining up with the station…'
+              : drift === null
+                ? `in step · ±${roundTripMs}ms to the station`
+                : `${Math.abs(drift) < 100 ? 'in step' : `${drift > 0 ? 'ahead' : 'behind'} by ${Math.abs(drift)}ms`} · ±${roundTripMs}ms to the station`}
+          </p>
+        )}
 
         {unplayable && <p className="room__error">{unplayable.reason} Skipping…</p>}
 

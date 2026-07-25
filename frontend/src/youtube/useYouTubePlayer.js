@@ -17,9 +17,20 @@ function loadYouTubeApi() {
   return apiLoadPromise;
 }
 
-// Seeking is audible, so correcting small drift does more damage than the drift
-// itself. This is the gap worth an audible jump to close.
-const DRIFT_TOLERANCE_MS = 1500;
+// The YouTube player exposes no fine playback-rate control, so the only way to
+// close a gap is to seek — and a seek is audible. That sets up the trade-off:
+// too tight and the track stutters as it chases a number, too loose and people
+// hear an echo between phones. Past roughly 50ms two devices in earshot sound
+// wrong, so this sits close to that and accepts an occasional jump.
+const DRIFT_TOLERANCE_MS = 250;
+
+// Seeking isn't instant. Aiming at where the station will be by the time the
+// seek lands avoids arriving permanently a beat behind.
+const SEEK_COMPENSATION_MS = 120;
+
+// A player that has just been told to seek reports nonsense for a moment, and
+// correcting on top of that starts a loop of corrections.
+const MIN_CORRECTION_GAP_MS = 2500;
 
 /**
  * Holds a YouTube player and keeps it lined up with the station's clock.
@@ -90,30 +101,58 @@ function useYouTubePlayer(containerId, onEnded) {
     };
   }, [containerId]);
 
-  const syncTo = useCallback((videoId, positionMs) => {
+  const lastCorrectionRef = useRef(0);
+
+  /**
+   * Puts this player where the station says it should be. Safe to call often —
+   * it only acts when the gap is worth the interruption of a seek.
+   */
+  const syncTo = useCallback((videoId, targetMs) => {
     const p = playerRef.current;
     if (!p || !p.loadVideoById) return;
 
-    const positionSec = Math.max(positionMs, 0) / 1000;
     wantsPlaybackRef.current = true;
 
     if (currentVideoRef.current !== videoId) {
       currentVideoRef.current = videoId;
       setUnplayable(null);
-      p.loadVideoById({ videoId, startSeconds: positionSec });
+      lastCorrectionRef.current = Date.now();
+      p.loadVideoById({
+        videoId,
+        startSeconds: Math.max(targetMs + SEEK_COMPENSATION_MS, 0) / 1000,
+      });
       return;
     }
 
     try {
-      const localSec = p.getCurrentTime() || 0;
-      if (Math.abs(localSec * 1000 - positionMs) > DRIFT_TOLERANCE_MS) {
-        p.seekTo(positionSec, true);
+      if (p.getPlayerState() !== window.YT?.PlayerState?.PLAYING) {
+        // Not playing yet: on desktop this simply starts it, and on iOS it is
+        // refused until a tap, which is what the gate in the UI exists for.
+        p.playVideo();
+        return;
       }
-      // Worth asking every time: desktop will simply start, and on iOS this is
-      // refused until a tap, which is what the gate in the UI is for.
-      if (p.getPlayerState() !== window.YT?.PlayerState?.PLAYING) p.playVideo();
+
+      const now = Date.now();
+      if (now - lastCorrectionRef.current < MIN_CORRECTION_GAP_MS) return;
+
+      const localMs = (p.getCurrentTime() || 0) * 1000;
+      if (Math.abs(localMs - targetMs) > DRIFT_TOLERANCE_MS) {
+        lastCorrectionRef.current = now;
+        p.seekTo(Math.max(targetMs + SEEK_COMPENSATION_MS, 0) / 1000, true);
+      }
     } catch {
       /* player still warming up */
+    }
+  }, []);
+
+  /** How far this player is from where it should be, for showing the listener. */
+  const driftFrom = useCallback((targetMs) => {
+    try {
+      const p = playerRef.current;
+      if (!p || p.getPlayerState?.() !== window.YT?.PlayerState?.PLAYING) return null;
+      return Math.round((p.getCurrentTime() || 0) * 1000 - targetMs);
+    } catch {
+      return null;
     }
   }, []);
 
@@ -165,6 +204,7 @@ function useYouTubePlayer(containerId, onEnded) {
     needsTap: ready && wantsPlaybackRef.current && !isPlaying,
     unplayable,
     syncTo,
+    driftFrom,
     stop,
     startPlayback,
     getDurationMs,

@@ -701,6 +701,14 @@ input[readonly]:focus-visible {
   line-height: 1;
 }
 
+.sync-status {
+  margin: -8px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Search results */
 .add-track {
   width: 100%;

@@ -144,6 +144,14 @@ function startIfIdle(roomId) {
 io.on('connection', (socket) => {
   let joinedRoom = null;
 
+  // Every listener is running its own slightly-wrong clock, and phones drift
+  // more than most. Handing out the server's time lets each one work out how
+  // far off it is, so "four minutes into the song" means the same instant on
+  // all of them rather than four different instants.
+  socket.on('time:sync', (_payload, ack) => {
+    if (typeof ack === 'function') ack({ serverTime: Date.now() });
+  });
+
   socket.on('station:create', (_payload, ack) => {
     const roomId = createRoom();
     log('station created', roomId);
