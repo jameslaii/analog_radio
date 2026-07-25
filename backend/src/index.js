@@ -17,7 +17,13 @@ const {
 
 const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://127.0.0.1:5173';
-const HOST_DISCONNECT_GRACE_MS = 20_000;
+// A backgrounded browser tab gets its timers throttled, so the socket heartbeat
+// stops and the connection drops within about a minute -- switching tabs to pick
+// a playlist is enough to trigger it. The grace window has to outlast that kind
+// of absence, not just a momentary network blip, or hosts lose their station for
+// looking away. Rooms are tiny, so holding one for a few idle minutes costs
+// nothing next to making someone re-share a dead link.
+const HOST_DISCONNECT_GRACE_MS = 5 * 60_000;
 
 // Room state is in-memory only, so when a station "just dies" the cause is
 // almost always invisible after the fact. These lines are the difference
@@ -36,6 +42,11 @@ app.get('/health', (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: CORS_ORIGIN },
+  // Default is a 20s timeout, which a throttled background tab misses easily.
+  // Waiting a full minute before declaring a host gone stops ordinary tab
+  // switching from being read as a disconnect in the first place.
+  pingInterval: 25_000,
+  pingTimeout: 60_000,
 });
 
 io.on('connection', (socket) => {

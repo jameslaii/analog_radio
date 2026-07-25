@@ -168,8 +168,8 @@ function HostRoom({ roomId, hostToken }) {
       {stationLost && (
         <div className="room__recover">
           <p className="room__error">
-            The station server restarted, so this share link no longer works. Your music and
-            Spotify connection are fine — you just need a new link to send out.
+            This station closed while you were disconnected, so the old share link no longer
+            works. Your music and Spotify connection are fine — grab a new link to send out.
           </p>
           <button onClick={startFreshStation} disabled={restarting}>
             {restarting ? 'Starting…' : 'Get a new link'}
