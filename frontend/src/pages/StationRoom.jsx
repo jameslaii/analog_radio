@@ -7,6 +7,7 @@ import {
   importPlaylist,
   PLAYLIST_UNAVAILABLE,
   PLAYLIST_NOT_READABLE,
+  PLAYLIST_UNSUPPORTED,
 } from '../youtube/importPlaylist';
 import AddTrack from '../components/AddTrack';
 import Listeners from '../components/Listeners';
@@ -156,8 +157,10 @@ function StationRoom({ roomId, name }) {
       } catch (err) {
         setAddNotice(null);
         if (!videoId) {
+          const cantReadPlaylists =
+            err.message === PLAYLIST_UNAVAILABLE || err.message === PLAYLIST_UNSUPPORTED;
           setAddError(
-            err.message === PLAYLIST_UNAVAILABLE
+            cantReadPlaylists
               ? "This station can't read playlists yet. Paste the track links instead."
               : err.message === PLAYLIST_NOT_READABLE
                 ? "That playlist is private, or it isn't there any more."
