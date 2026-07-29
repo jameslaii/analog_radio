@@ -5,6 +5,9 @@ everyone else opens the link, and you all hear the same thing at the same
 moment. Anyone can queue a track, anyone can skip, and everyone can rate what's
 playing while it plays.
 
+Paste a link with a playlist on it and the whole playlist comes. Going round
+the room a track at a time means that doesn't cost anyone else their turn.
+
 **No accounts. No sign-in. No subscriptions.** Open the link, pick a name, and
 you're in.
 
@@ -22,6 +25,30 @@ on, rather than restarting it for everyone.
 
 Tracks are added by pasting a YouTube link. That needs no API key, so there is
 nothing to set up before the first song.
+
+## Whose turn it is
+
+The queue plays a turn at a time from each person with something waiting, so
+pasting a fifty-track playlist doesn't buy you the next three hours. Your first
+track plays before anyone's second, however much they queued; within your own
+tracks, your order is left alone.
+
+## Going off the air
+
+**Off the air** stops the music for you and nobody else. The station has no
+host, so there is no one whose pause should silence the room — it keeps
+playing, and coming back on drops you in live, wherever it has got to by then.
+Skip is still the way to end a track for everybody.
+
+## Playlists
+
+Pasting a link with `list=` on it queues the whole playlist rather than the one
+video. This is the one thing that needs `YOUTUBE_API_KEY` set on the backend —
+a playlist's contents can't be read without it. Without a key the same link
+still queues the video it names.
+
+Mixes (`RD…`), Watch Later, and Liked Videos can't be read by anyone but their
+owner, so those links queue the single video too.
 
 ## Running it locally
 
@@ -76,7 +103,9 @@ A `frontend/vercel.json` is included so `/room/:id` doesn't 404 on refresh.
   lot of official music videos. The station detects this and skips, but the
   track is simply unavailable — there's no way around it.
 - **Phones stop playing when the browser is backgrounded.** You can't lock your
-  phone and keep listening the way a native music app allows.
+  phone and keep listening the way a native music app allows. Since the station
+  keeps running without you, coming back puts you wherever it has reached
+  rather than where you left.
 - **Ads can pull people out of sync**, since they don't run the same length for
   everyone.
 - **Rooms live in memory.** A backend restart clears every station. Idle

@@ -49,10 +49,13 @@ function useYouTubePlayer(containerId, onEnded) {
   const playerRef = useRef(null);
   const currentVideoRef = useRef(null);
   const wantsPlaybackRef = useRef(false);
+  const pausedRef = useRef(false);
+  const resumeSeekRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [wantsPlayback, setWantsPlayback] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [stalled, setStalled] = useState(false);
   const [unplayable, setUnplayable] = useState(null);
 
@@ -129,12 +132,19 @@ function useYouTubePlayer(containerId, onEnded) {
     const p = playerRef.current;
     if (!p || !p.loadVideoById) return;
 
+    // Someone who has stepped off the air stays off it. Without this the very
+    // next tick reads "not playing", decides that is drift, and starts the
+    // track again — which is why pausing anywhere (a lock screen, a headset
+    // button) used to last about a second.
+    if (pausedRef.current) return;
+
     wantsPlaybackRef.current = true;
     setWantsPlayback(true);
 
     if (currentVideoRef.current !== videoId) {
       currentVideoRef.current = videoId;
       setUnplayable(null);
+      resumeSeekRef.current = false;
       lastCorrectionRef.current = Date.now();
       p.loadVideoById({
         videoId,
@@ -144,18 +154,25 @@ function useYouTubePlayer(containerId, onEnded) {
     }
 
     try {
+      // Coming back on air means rejoining the station where it is now, not
+      // where it was when you left. That seek has to happen whatever the usual
+      // drift rules say, so it is forced through rather than waiting out the
+      // correction gap.
+      const rejoining = resumeSeekRef.current;
+
       if (p.getPlayerState() !== window.YT?.PlayerState?.PLAYING) {
         // Not playing yet: on desktop this simply starts it, and on iOS it is
         // refused until a tap, which is what the gate in the UI exists for.
         p.playVideo();
-        return;
+        if (!rejoining) return;
       }
 
       const now = Date.now();
-      if (now - lastCorrectionRef.current < MIN_CORRECTION_GAP_MS) return;
+      if (!rejoining && now - lastCorrectionRef.current < MIN_CORRECTION_GAP_MS) return;
 
       const localMs = (p.getCurrentTime() || 0) * 1000;
-      if (Math.abs(localMs - targetMs) > DRIFT_TOLERANCE_MS) {
+      if (rejoining || Math.abs(localMs - targetMs) > DRIFT_TOLERANCE_MS) {
+        resumeSeekRef.current = false;
         lastCorrectionRef.current = now;
         p.seekTo(Math.max(targetMs + SEEK_COMPENSATION_MS, 0) / 1000, true);
       }
@@ -181,6 +198,40 @@ function useYouTubePlayer(containerId, onEnded) {
     currentVideoRef.current = null;
     try {
       playerRef.current?.stopVideo?.();
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  /**
+   * Steps this listener off the air. The station carries on without them —
+   * there is no host here, and one person reaching for pause shouldn't stop
+   * the music in everyone else's room.
+   */
+  const pause = useCallback(() => {
+    pausedRef.current = true;
+    setPaused(true);
+    // Nothing is meant to be playing now, so a silent player is correct rather
+    // than stalled, and the "tap to start" gate stays out of the way.
+    wantsPlaybackRef.current = false;
+    setWantsPlayback(false);
+    try {
+      playerRef.current?.pauseVideo?.();
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  /** Back on air, live — mid-song, wherever the room has got to by now. */
+  const resume = useCallback(() => {
+    pausedRef.current = false;
+    setPaused(false);
+    resumeSeekRef.current = true;
+    // Started here, inside the tap, because a phone will only make sound in
+    // response to a gesture. The seek that lands it back in step follows on
+    // the next tick.
+    try {
+      playerRef.current?.playVideo?.();
     } catch {
       /* ignore */
     }
@@ -218,6 +269,7 @@ function useYouTubePlayer(containerId, onEnded) {
   return {
     ready,
     isPlaying,
+    paused,
     // Something is meant to be playing and has stayed stopped long enough that
     // buffering doesn't explain it — usually a browser refusing to make sound
     // without being asked. Only then is the listener worth interrupting.
@@ -226,6 +278,8 @@ function useYouTubePlayer(containerId, onEnded) {
     syncTo,
     driftFrom,
     stop,
+    pause,
+    resume,
     startPlayback,
     getDurationMs,
     setVolume,

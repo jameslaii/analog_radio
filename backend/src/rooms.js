@@ -95,16 +95,43 @@ function removeListener(roomId, socketId) {
   if (room.listeners.size === 0) room.emptySince = Date.now();
 }
 
+/**
+ * Which round of the room this track belongs to.
+ *
+ * Your own tracks queue up behind each other, one round each. But arriving with
+ * nothing waiting puts you at the front of the order rather than the back of
+ * the line, because everyone already in it has had a turn banked and you
+ * haven't. That is what makes "your next track plays before anyone's second"
+ * true no matter how much they queued.
+ *
+ * The number is worked out once, when the track is added, and never revised.
+ * Recomputing the order each time a track finishes sounds equivalent and isn't:
+ * whoever queued first would keep landing at the front of every fresh round and
+ * quietly take the whole night anyway.
+ */
+function nextTurn(room, addedBy) {
+  const mine = room.queue.filter((i) => i.addedBy === addedBy);
+  if (mine.length > 0) return mine[mine.length - 1].turn + 1;
+
+  let earliest = null;
+  for (const i of room.queue) {
+    if (earliest === null || i.turn < earliest) earliest = i.turn;
+  }
+  return earliest === null ? 1 : earliest - 1;
+}
+
 function enqueue(roomId, { videoId, title, durationMs, addedBy }) {
   const room = rooms.get(roomId);
   if (!room) return null;
 
+  const by = addedBy || 'someone';
   const item = {
     id: generateItemId(),
     videoId,
     title,
     durationMs: durationMs || 0,
-    addedBy: addedBy || 'someone',
+    addedBy: by,
+    turn: nextTurn(room, by),
   };
   room.queue.push(item);
   return item;
@@ -116,6 +143,25 @@ function removeQueued(roomId, itemId) {
   const before = room.queue.length;
   room.queue = room.queue.filter((i) => i.id !== itemId);
   return room.queue.length !== before;
+}
+
+/**
+ * The running order: a turn at a time from each person with something waiting.
+ *
+ * Stored order is arrival order, which is the wrong order to play in. One
+ * person pasting a whole playlist would own the next two hours and everyone
+ * else would wait behind it, which is how a room full of people ends up
+ * listening to one person's evening. Going round instead costs the big
+ * contributor nothing except going second sometimes.
+ *
+ * Within one round, arrival order decides — so a person's own tracks always
+ * play in the order they chose.
+ */
+function orderedQueue(room) {
+  return room.queue
+    .map((item, arrival) => ({ item, arrival }))
+    .sort((a, b) => a.item.turn - b.item.turn || a.arrival - b.arrival)
+    .map((entry) => entry.item);
 }
 
 /**
@@ -133,7 +179,10 @@ function advance(roomId, { allowRerun = true } = {}) {
 
   // Anything anyone actually chose comes first; a rerun is only ever what
   // happens instead of silence.
-  const next = room.queue.shift() || (allowRerun ? pickRerun(roomId) : null);
+  const queued = orderedQueue(room)[0] || null;
+  if (queued) room.queue = room.queue.filter((i) => i.id !== queued.id);
+
+  const next = queued || (allowRerun ? pickRerun(roomId) : null);
   room.nowPlaying = next ? { ...next, startedAtMs: Date.now() } : null;
   return room.nowPlaying;
 }
@@ -249,7 +298,8 @@ function serialize(roomId) {
           positionMs: Date.now() - room.nowPlaying.startedAtMs,
         }
       : null,
-    queue: room.queue.map(withRatings),
+    // Shown in the order it will actually play, not the order it arrived in.
+    queue: orderedQueue(room).map(withRatings),
     history: room.history.slice(0, 10).map(withRatings),
     listeners: [...room.listeners.values()].map((l) => l.name),
   };
@@ -282,6 +332,7 @@ module.exports = {
   removeListener,
   enqueue,
   removeQueued,
+  orderedQueue,
   advance,
   setNowPlayingDuration,
   shouldAutoSkip,

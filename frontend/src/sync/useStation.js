@@ -98,6 +98,20 @@ function useStation(roomId, listenerName) {
     [roomId]
   );
 
+  // A whole playlist in one event. Resolves to how many actually landed, since
+  // a playlist can carry more than the station will take at once.
+  const addManyToQueue = useCallback(
+    (tracks) =>
+      new Promise((resolve) => {
+        socket.timeout(15000).emit(
+          'queue:addMany',
+          { roomId, addedBy: nameRef.current, tracks },
+          (err, res) => resolve(err || !res?.ok ? 0 : res.added || 0)
+        );
+      }),
+    [roomId]
+  );
+
   const removeFromQueue = useCallback(
     (itemId) => socket.emit('queue:remove', { roomId, itemId }),
     [roomId]
@@ -134,6 +148,7 @@ function useStation(roomId, listenerName) {
     joinError,
     connected,
     addToQueue,
+    addManyToQueue,
     removeFromQueue,
     skip,
     rateTrack,

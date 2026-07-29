@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useStation } from '../sync/useStation';
 import { useServerClock } from '../sync/useServerClock';
 import { useYouTubePlayer } from '../youtube/useYouTubePlayer';
-import { parseVideoId, fetchTitle } from '../youtube/youtubeLinks';
+import { parseVideoId, parsePlaylistId, fetchTitle } from '../youtube/youtubeLinks';
+import {
+  importPlaylist,
+  PLAYLIST_UNAVAILABLE,
+  PLAYLIST_NOT_READABLE,
+} from '../youtube/importPlaylist';
 import AddTrack from '../components/AddTrack';
 import Listeners from '../components/Listeners';
 import Chat from '../components/Chat';
@@ -18,6 +23,7 @@ const PLAYER_ID = 'analog-radio-player';
 function StationRoom({ roomId, name }) {
   const [linkCopied, setLinkCopied] = useState(false);
   const [addError, setAddError] = useState(null);
+  const [addNotice, setAddNotice] = useState(null);
 
   const {
     state,
@@ -26,6 +32,7 @@ function StationRoom({ roomId, name }) {
     joinError,
     connected,
     addToQueue,
+    addManyToQueue,
     removeFromQueue,
     skip,
     rateTrack,
@@ -47,9 +54,12 @@ function StationRoom({ roomId, name }) {
   const {
     ready,
     needsTap,
+    paused,
     unplayable,
     syncTo,
     stop,
+    pause,
+    resume,
     startPlayback,
     setVolume,
     getDurationMs,
@@ -104,13 +114,61 @@ function StationRoom({ roomId, name }) {
 
   useEffect(() => {
     if (!unplayable || !nowPlaying) return;
+    // The refusal has to be about the track on air now. The player clears it
+    // when it loads something new, but that clearing lands a render later than
+    // the new track does — so without this, a blocked video is still "the"
+    // failure at the moment its replacement arrives, and reports it dead
+    // within milliseconds. One video the owner had blocked would take the
+    // whole queue down behind it, a track at a time.
+    if (unplayable.videoId !== nowPlaying.videoId) return;
     if (reportedUnplayableFor.current === nowPlaying.id) return;
     reportedUnplayableFor.current = nowPlaying.id;
     reportUnplayable(nowPlaying.id);
   }, [unplayable, nowPlaying, reportUnplayable]);
 
+  /**
+   * A link with a playlist on it brings the whole playlist.
+   *
+   * Most YouTube links copied mid-playlist carry both, and until now the list
+   * was thrown away and one track queued out of fifty. Where the playlist can't
+   * be read — no API key on this station, or it's private — the video in the
+   * same link is still queued, so the paste does something either way.
+   */
   async function handleAddLink(input) {
+    const listId = parsePlaylistId(input);
     const videoId = parseVideoId(input);
+
+    if (listId) {
+      setAddError(null);
+      setAddNotice('Reading that playlist…');
+      try {
+        const tracks = await importPlaylist(listId);
+        const added = tracks.length > 0 ? await addManyToQueue(tracks) : 0;
+        if (added > 0) {
+          setAddNotice(`Queued ${added} track${added === 1 ? '' : 's'} from that playlist.`);
+          return true;
+        }
+        setAddNotice(null);
+        if (!videoId) {
+          setAddError("That playlist came back empty — nothing in it can play here.");
+          return false;
+        }
+      } catch (err) {
+        setAddNotice(null);
+        if (!videoId) {
+          setAddError(
+            err.message === PLAYLIST_UNAVAILABLE
+              ? "This station can't read playlists yet. Paste the track links instead."
+              : err.message === PLAYLIST_NOT_READABLE
+                ? "That playlist is private, or it isn't there any more."
+                : "Couldn't read that playlist. Try again, or paste the track links."
+          );
+          return false;
+        }
+      }
+      // Falling through: the playlist didn't come, but the link named a video.
+    }
+
     if (!videoId) {
       setAddError("That doesn't look like a YouTube link. Paste the address from the video.");
       return false;
@@ -124,6 +182,7 @@ function StationRoom({ roomId, name }) {
 
   async function handleAddResult(result) {
     setAddError(null);
+    setAddNotice(null);
     const ok = await addToQueue({
       videoId: result.videoId,
       title: result.title,
@@ -167,12 +226,12 @@ function StationRoom({ roomId, name }) {
       {!connected && <p className="room__error">Reconnecting to the station…</p>}
 
       <div className="radio-console">
-        <OnAirIndicator isLive={Boolean(nowPlaying) && !needsTap} />
+        <OnAirIndicator isLive={Boolean(nowPlaying) && !needsTap && !paused} />
 
         {/* Always mounted, so the player has something to attach to. */}
         <div className={`player-frame ${nowPlaying ? '' : 'player-frame--idle'}`}>
           <div id={PLAYER_ID} />
-          {needsTap && (
+          {needsTap && !paused && (
             <button className="player-frame__gate" onClick={startPlayback}>
               <span className="player-frame__gate-icon" aria-hidden="true">
                 ▶
@@ -185,7 +244,7 @@ function StationRoom({ roomId, name }) {
         <TuningDial
           positionMs={nowPlaying?.positionMs}
           durationMs={nowPlaying?.durationMs}
-          isPaused={!nowPlaying || needsTap}
+          isPaused={!nowPlaying || needsTap || paused}
         />
 
         <FrequencyDisplay
@@ -209,12 +268,25 @@ function StationRoom({ roomId, name }) {
         <VolumeKnob onChange={(v) => setVolume(Math.round(v * 100))} />
 
         <div className="room__controls">
+          {/* Yours alone. The station has no host to pause, and stopping the
+              music in everyone else's room is what Skip is for. */}
+          <button onClick={paused ? resume : pause} disabled={!nowPlaying}>
+            {paused ? 'Back on air' : 'Off the air'}
+          </button>
           <button onClick={skip} disabled={!nowPlaying}>
             Skip
           </button>
         </div>
 
+        {paused && (
+          <p className="room__note">
+            You're off the air — the station is still playing without you. Come back on and
+            you'll land wherever it's got to.
+          </p>
+        )}
+
         <AddTrack onAddLink={handleAddLink} onAddResult={handleAddResult} />
+        {addNotice && <p className="room__note">{addNotice}</p>}
         {addError && <p className="room__error">{addError}</p>}
 
         <div className="station__section">

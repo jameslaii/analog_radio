@@ -217,6 +217,16 @@ input[readonly]:focus-visible {
   color: var(--red);
 }
 
+/* Something worth saying that isn't anything going wrong. */
+.room__note {
+  margin: 0;
+  max-width: 34ch;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
 /* Room */
 .room {
   width: 100%;

@@ -94,6 +94,71 @@ app.get('/search', async (req, res) => {
   }
 });
 
+// A playlist is the one thing people already have that this app can't read: a
+// link to fifty tracks currently queues one of them. Importing needs the API —
+// there's no keyless equivalent of oEmbed for a playlist's contents — so it
+// degrades the same way search does rather than failing loudly.
+const PLAYLIST_PAGE_SIZE = 50;
+const MAX_PLAYLIST_TRACKS = 100;
+
+app.get('/playlist', async (req, res) => {
+  const listId = (req.query.list || '').toString().trim();
+  if (!listId) return res.json({ tracks: [] });
+  if (!YT_KEY) return res.status(501).json({ error: 'playlist_not_configured' });
+
+  try {
+    const tracks = [];
+    let pageToken = '';
+
+    while (tracks.length < MAX_PLAYLIST_TRACKS) {
+      const params = new URLSearchParams({
+        key: YT_KEY,
+        playlistId: listId,
+        part: 'snippet,status',
+        maxResults: String(PLAYLIST_PAGE_SIZE),
+      });
+      if (pageToken) params.set('pageToken', pageToken);
+
+      const listRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?${params}`);
+      if (!listRes.ok) {
+        const detail = await listRes.text().catch(() => '');
+        log('playlist failed', null, `${listRes.status} ${detail.slice(0, 200)}`);
+        // A private or nonexistent playlist is the caller's problem to explain,
+        // not a fault worth retrying.
+        const notReadable = listRes.status === 403 || listRes.status === 404;
+        return res.status(notReadable ? 404 : 502).json({
+          error: notReadable ? 'playlist_not_readable' : 'playlist_failed',
+        });
+      }
+
+      const data = await listRes.json();
+      for (const item of data.items || []) {
+        const videoId = item.snippet?.resourceId?.videoId;
+        // Playlists keep tombstones for videos that have gone private or been
+        // deleted. They still come back from the API, and queueing them would
+        // just stall the station on something nobody can hear.
+        const privacy = item.status?.privacyStatus;
+        if (!videoId || privacy === 'private' || privacy === 'privacyStatusUnspecified') continue;
+
+        const title = decodeHtml(item.snippet?.title || 'Untitled');
+        if (title === 'Deleted video' || title === 'Private video') continue;
+
+        tracks.push({ videoId, title });
+        if (tracks.length >= MAX_PLAYLIST_TRACKS) break;
+      }
+
+      pageToken = data.nextPageToken || '';
+      if (!pageToken) break;
+    }
+
+    log('playlist read', null, `${listId} -> ${tracks.length} tracks`);
+    res.json({ tracks });
+  } catch (err) {
+    log('playlist error', null, err.message);
+    res.status(502).json({ error: 'playlist_failed' });
+  }
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: CORS_ORIGIN },
@@ -206,6 +271,38 @@ io.on('connection', (socket) => {
     startIfIdle(roomId);
     broadcast(roomId);
     if (typeof ack === 'function') ack({ ok: true, item });
+  });
+
+  // A playlist arrives as one event rather than fifty. Sent one at a time it
+  // would be fifty full state broadcasts to everyone in the room for a single
+  // paste, and the queue would visibly crawl into place.
+  socket.on('queue:addMany', ({ roomId, tracks, addedBy } = {}, ack) => {
+    if (!getRoom(roomId) || !Array.isArray(tracks) || tracks.length === 0) {
+      if (typeof ack === 'function') ack({ ok: false, added: 0 });
+      return;
+    }
+
+    let added = 0;
+    for (const track of tracks.slice(0, MAX_PLAYLIST_TRACKS)) {
+      if (!track?.videoId) continue;
+      enqueue(roomId, {
+        videoId: track.videoId,
+        title: track.title,
+        durationMs: track.durationMs,
+        addedBy,
+      });
+      added += 1;
+    }
+
+    if (added === 0) {
+      if (typeof ack === 'function') ack({ ok: false, added: 0 });
+      return;
+    }
+
+    log('playlist queued', roomId, `${added} tracks (by ${addedBy || 'someone'})`);
+    startIfIdle(roomId);
+    broadcast(roomId);
+    if (typeof ack === 'function') ack({ ok: true, added });
   });
 
   socket.on('queue:remove', ({ roomId, itemId } = {}) => {

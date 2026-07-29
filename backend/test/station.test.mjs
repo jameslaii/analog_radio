@@ -86,6 +86,74 @@ const s2 = await stateAfterSecond;
 check('a second track waits in the queue', s2?.queue?.length === 1 && s2.queue[0].title === 'Second Song');
 check('the playing track is not replaced', s2?.nowPlaying?.title === 'First Song');
 
+// --- nobody gets to own the night ---
+{
+  const [x, y] = [await connect(), await connect()];
+  const room = (await emit(x, 'station:create', {})).roomId;
+  await emit(x, 'station:join', { roomId: room, name: 'James' });
+  await emit(y, 'station:join', { roomId: room, name: 'Rosina' });
+
+  // James pastes a playlist; the first track starts, six wait.
+  await emit(x, 'queue:addMany', {
+    roomId: room,
+    addedBy: 'James',
+    tracks: Array.from({ length: 7 }, (_, i) => ({
+      videoId: `j${String(i).repeat(10)}`,
+      title: `James ${i + 1}`,
+    })),
+  });
+  await wait(300);
+
+  let s = await emit(x, 'playback:resync', { roomId: room });
+  check('a playlist starts the station on its first track', s.nowPlaying?.title === 'James 1');
+  check('the rest of the playlist waits in the queue', s.queue.length === 6);
+
+  await emit(y, 'queue:add', { roomId: room, videoId: 'r0000000000', title: 'Rosina 1', addedBy: 'Rosina' });
+  await wait(200);
+  s = await emit(y, 'playback:resync', { roomId: room });
+  check(
+    'one track queued behind a playlist goes next, not eighth',
+    s.queue[0]?.title === 'Rosina 1',
+    s.queue.map((i) => i.title).join(', ')
+  );
+
+  await emit(y, 'queue:add', { roomId: room, videoId: 'r1111111111', title: 'Rosina 2', addedBy: 'Rosina' });
+  await wait(200);
+  s = await emit(y, 'playback:resync', { roomId: room });
+  check(
+    'two people alternate rather than queueing in blocks',
+    s.queue.slice(0, 4).map((i) => i.title).join('|') === 'Rosina 1|James 2|Rosina 2|James 3',
+    s.queue.map((i) => i.title).join(', ')
+  );
+  check(
+    'and the long tail follows once the other person runs out',
+    s.queue.slice(4).map((i) => i.title).join('|') === 'James 4|James 5|James 6|James 7'
+  );
+  check(
+    "one person's own tracks stay in the order they chose",
+    s.queue.filter((i) => i.addedBy === 'James').map((i) => i.title).join('|') ===
+      'James 2|James 3|James 4|James 5|James 6|James 7'
+  );
+
+  x.emit('track:ended', { roomId: room, itemId: s.nowPlaying.id });
+  await wait(350);
+  s = await emit(x, 'playback:resync', { roomId: room });
+  check(
+    "someone's first track is heard before the playlist's second",
+    s.nowPlaying?.title === 'Rosina 1'
+  );
+  x.emit('track:ended', { roomId: room, itemId: s.nowPlaying.id });
+  await wait(350);
+  s = await emit(x, 'playback:resync', { roomId: room });
+  check('and then it is the other person again', s.nowPlaying?.title === 'James 2');
+
+  const empty = await emit(x, 'queue:addMany', { roomId: room, addedBy: 'James', tracks: [] });
+  check('an empty playlist is refused rather than queued', empty?.ok === false);
+
+  x.close();
+  y.close();
+}
+
 // --- ratings ---
 const playingId = s2.nowPlaying.id;
 let rated = nextState(b);
