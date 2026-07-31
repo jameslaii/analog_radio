@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from './socket';
+import { playChatChime } from '../lib/chatChime';
 
 // The station's position keeps moving while the page sits still, so it is
 // re-read on a timer rather than only when the server speaks. Background tabs
 // get their timers throttled, which is exactly when a listener drifts furthest
 // and most needs correcting on return.
 const RESYNC_INTERVAL_MS = 10_000;
+
+// Chat is never fetched, only received, so this is the only thing keeping an
+// all-evening session from growing a few thousand lines of DOM nobody has
+// scrolled back to since.
+const MAX_VISIBLE_MESSAGES = 200;
 
 /**
  * Connects to a station and keeps a live view of what it's playing, what's
@@ -37,9 +43,10 @@ function useStation(roomId, listenerName) {
           }
           setJoinError(null);
           setState(res.state);
-          // The backlog arrives once, on joining; everything after it comes in
-          // one message at a time.
-          setMessages(res.messages || []);
+          // Nothing to seed the chat with: the room hands over no history, and
+          // messages already on screen are deliberately left alone. This runs
+          // again on every reconnect, and dropping a wifi blip for a few
+          // seconds shouldn't cost you the conversation you were in.
         }
       );
     }
@@ -57,9 +64,10 @@ function useStation(roomId, listenerName) {
       setState(next);
     }
     function onMessage(message) {
-      // Guard against a duplicate slipping in when a reconnect replays the
-      // backlog over messages already on screen.
-      setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+      // Your own line coming back off the relay isn't news, and a sound for it
+      // would fire on every keystroke's worth of conversation you started.
+      if (message.name !== nameRef.current) playChatChime();
+      setMessages((prev) => [...prev, message].slice(-MAX_VISIBLE_MESSAGES));
     }
 
     socket.on('connect', onConnect);

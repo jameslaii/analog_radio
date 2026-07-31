@@ -846,10 +846,33 @@ input[readonly]:focus-visible {
   background: linear-gradient(180deg, rgba(94, 234, 212, 0.04), transparent 60%), var(--panel);
 }
 
+.chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .chat__header h4 {
   font-size: 11px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
+}
+
+/* A switch, not a button — small enough to stay out of the way of the talking */
+.chat__sound {
+  padding: 3px 10px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border-color: rgba(255, 181, 107, 0.25);
+  color: var(--text-dim);
+}
+
+.chat__sound[aria-pressed='true'] {
+  border-color: rgba(255, 181, 107, 0.55);
+  color: var(--amber);
 }
 
 .chat__log {

@@ -309,28 +309,47 @@ check(
   check('a message reaches the other listener', msg?.text === 'this one goes hard');
   check('a message says who sent it', msg?.name === 'James');
 
-  // Throttled, so a stuck key can't flood the room.
+  // Throttled, so a stuck key can't flood the room. Clearing the window the
+  // message above opened first, or both of these are swallowed by that one.
+  await wait(450);
+  const burst = [];
+  const collect = (m) => burst.push(m);
+  y.on('chat:message', collect);
   x.emit('chat:send', { roomId: room, text: 'first' });
   x.emit('chat:send', { roomId: room, text: 'second' });
   await wait(400);
+  y.off('chat:message', collect);
+  check('a burst from one listener is throttled', burst.length === 1, `${burst.length} relayed`);
 
-  // Someone arriving late should be able to follow what's been said.
+  // --- and none of it is kept ---
+  // The room stores no conversation, so arriving late means arriving to
+  // silence rather than to everyone else's evening.
   const z = await connect();
   const late = await emit(z, 'station:join', { roomId: room, name: 'Russell' });
-  check('a late arrival is given the backlog', (late?.messages?.length ?? 0) >= 1);
-  check(
-    'the backlog is in the order it was said',
-    late.messages[0].text === 'this one goes hard'
-  );
+  check('joining still succeeds', late?.ok === true);
+  check('a late arrival is handed no backlog', !late?.messages?.length);
 
-  const before = late.messages.length;
-  x.emit('chat:send', { roomId: room, text: '   ' });
-  await wait(400);
-  const after = await emit(z, 'playback:resync', { roomId: room });
-  check('an empty message is ignored', Boolean(after));
+  const heardLive = new Promise((resolve) => z.once('chat:message', resolve));
+  x.emit('chat:send', { roomId: room, text: 'welcome in' });
+  const live = await heardLive;
+  check('but hears everything said from then on', live?.text === 'welcome in');
 
+  // Nothing accumulates behind the scenes either: rejoining is the closest a
+  // client can get to asking the room what it remembers.
   const rejoin = await emit(z, 'station:join', { roomId: room, name: 'Russell' });
-  check('blank messages never made it into the log', rejoin.messages.length === before);
+  check('and rejoining does not bring it back', !rejoin?.messages?.length);
+
+  // Blank lines are dropped rather than relayed as empty bubbles.
+  await wait(450);
+  const blank = new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 600);
+    z.once('chat:message', (m) => {
+      clearTimeout(timer);
+      resolve(m);
+    });
+  });
+  x.emit('chat:send', { roomId: room, text: '   ' });
+  check('an empty message is never relayed', (await blank) === null);
 
   [x, y, z].forEach((s) => s.close());
 }

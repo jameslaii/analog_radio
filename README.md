@@ -40,6 +40,19 @@ host, so there is no one whose pause should silence the room — it keeps
 playing, and coming back on drops you in live, wherever it has got to by then.
 Skip is still the way to end a track for everybody.
 
+## Room talk
+
+The chat is live only. Nothing is stored — not on the server, not anywhere —
+so whoever opens the link an hour into the night arrives to an empty log
+rather than to everyone else's evening. You see what is said while you are in
+the room, and that is all.
+
+A message from someone else plays a short, quiet blip, because on a phone the
+chat is usually scrolled off under the player and a line landing there is
+otherwise silent and invisible. Your own messages never sound. There's a
+**sound on / sound off** switch in the chat header if you'd rather it didn't,
+and it's remembered on that device.
+
 ## Playlists
 
 Pasting a link with `list=` on it queues the whole playlist rather than the one
@@ -110,3 +123,6 @@ A `frontend/vercel.json` is included so `/room/:id` doesn't 404 on refresh.
   everyone.
 - **Rooms live in memory.** A backend restart clears every station. Idle
   stations are reclaimed after two hours.
+- **Refreshing the page clears your chat.** It's held in the tab and nowhere
+  else, so there is nothing to restore it from. That's the same property that
+  makes the room's talk disappear in the first place.
