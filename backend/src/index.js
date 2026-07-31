@@ -13,8 +13,7 @@ const {
   advance,
   setNowPlayingDuration,
   shouldAutoSkip,
-  addMessage,
-  recentMessages,
+  composeMessage,
   rate,
   serialize,
   sweepIdleRooms,
@@ -238,12 +237,10 @@ io.on('connection', (socket) => {
     joinedRoom = roomId;
     socket.join(roomId);
     log('listener joined', roomId, `(${room.listeners.size} present)`);
-    // Chat arrives once here and then message by message. Replaying the whole
-    // log on every rating and track change would be a lot of traffic for a
-    // conversation that only ever grows at one end.
-    if (typeof ack === 'function') {
-      ack({ ok: true, state: serialize(roomId), messages: recentMessages(roomId) });
-    }
+    // No chat comes back with the state. Whatever the room was saying before
+    // this moment is gone, and arriving is where your copy of the conversation
+    // starts.
+    if (typeof ack === 'function') ack({ ok: true, state: serialize(roomId) });
     broadcast(roomId);
   });
 
@@ -255,9 +252,10 @@ io.on('connection', (socket) => {
     const now = Date.now();
     if (now - lastMessageAt < 400) return;
 
-    const message = addMessage(roomId, { name: listenerName, text });
+    const message = composeMessage({ name: listenerName, text });
     if (!message) return;
     lastMessageAt = now;
+    // Straight out to whoever is in the room right now, and nowhere else.
     io.to(roomId).emit('chat:message', message);
   });
 

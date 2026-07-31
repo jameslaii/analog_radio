@@ -18,6 +18,9 @@ const generateItemId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10
 //   advanceTimer,
 //   emptySince,
 // }
+//
+// Note there is no messages list. Room talk is relayed and forgotten — see
+// composeMessage.
 const rooms = new Map();
 
 function createRoom() {
@@ -30,7 +33,6 @@ function createRoom() {
     history: [],
     ratings: new Map(),
     listeners: new Map(),
-    messages: [],
     advanceTimer: null,
     emptySince: Date.now(),
   });
@@ -38,39 +40,30 @@ function createRoom() {
 }
 
 const MAX_MESSAGE_LENGTH = 300;
-const MESSAGE_HISTORY = 80;
 
 /**
- * Records a line of chat, returning it so it can be sent on to the room.
+ * Shapes a line of chat for relaying — and deliberately doesn't keep it.
  *
- * Only a recent window is kept: someone arriving mid-session should see enough
- * to follow what's being said without the room quietly accumulating an entire
- * evening in memory.
+ * Room talk is live only. Nothing is stored, so there is no backlog to hand
+ * whoever walks in an hour from now: what you hear is what was said while you
+ * were in the room, and the rest was never anyone else's to read. That the
+ * server holds none of it is the part that makes the promise true rather than
+ * merely displayed — a room's conversation cannot leak out of a process that
+ * isn't carrying it.
+ *
+ * Returns null for anything that is only whitespace, so an empty line is
+ * dropped here rather than relayed as a blank bubble.
  */
-function addMessage(roomId, { name, text }) {
-  const room = rooms.get(roomId);
-  if (!room) return null;
-
+function composeMessage({ name, text }) {
   const body = String(text || '').trim().slice(0, MAX_MESSAGE_LENGTH);
   if (!body) return null;
 
-  const message = {
+  return {
     id: generateItemId(),
     name: name || 'someone',
     text: body,
     at: Date.now(),
   };
-
-  room.messages.push(message);
-  if (room.messages.length > MESSAGE_HISTORY) {
-    room.messages = room.messages.slice(-MESSAGE_HISTORY);
-  }
-  return message;
-}
-
-function recentMessages(roomId) {
-  const room = rooms.get(roomId);
-  return room ? room.messages.slice(-MESSAGE_HISTORY) : [];
 }
 
 function getRoom(roomId) {
@@ -337,8 +330,7 @@ module.exports = {
   setNowPlayingDuration,
   shouldAutoSkip,
   pickRerun,
-  addMessage,
-  recentMessages,
+  composeMessage,
   rate,
   serialize,
   deleteRoom,
